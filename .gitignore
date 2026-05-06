@@ -1,0 +1,9 @@
+# Virtual environments
+Backend/myvenv/
+Backend/venv/
+
+# Model storage
+Backend/models_store/*.pkl
+
+# Data files
+Backend/data/*.csv
