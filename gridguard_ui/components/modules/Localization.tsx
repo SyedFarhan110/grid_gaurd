@@ -14,18 +14,21 @@ const KarachiMap = dynamic(() => import('@/components/KarachiMap'), {
 
 export default function Localization() {
   const { state } = useApp();
-  const result = state.latestResult;
+  const result = state.stickyFaultResult ?? state.latestResult;
   const loc    = result?.localization;
 
   if (!result || !loc) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 300 }}>
-        <div style={{ textAlign: 'center' }}>
-          <MapPin size={32} color="var(--text-dim)" style={{ margin: '0 auto 12px' }} />
-          <p style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-dim)' }}>
-            Localization runs after fault is detected
-          </p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 300 }}>
+          <div style={{ textAlign: 'center' }}>
+            <MapPin size={32} color="var(--text-dim)" style={{ margin: '0 auto 12px' }} />
+            <p style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-dim)' }}>
+              Localization runs after fault is detected
+            </p>
+          </div>
         </div>
+        {/* Fault stack moved to History screen */}
       </div>
     );
   }
@@ -79,6 +82,8 @@ export default function Localization() {
           </div>
         </div>
       </div>
+
+      {/* Fault stack moved to History screen */}
 
       {/* Map + sidebar */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: 16, height: 420 }}>

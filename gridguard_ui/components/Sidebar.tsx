@@ -87,7 +87,7 @@ export default function Sidebar() {
       <nav style={{ flex: 1, padding: '12px 0', overflowY: 'auto' }}>
         {MODULES.map(mod => {
           const isActive   = state.activeModule === mod.id;
-          const isEnabled  = mod.alwaysOn || isFault;
+          const isEnabled  = mod.alwaysOn || isFault || state.faultModulesUnlocked;
           const Icon       = mod.icon;
 
           return (

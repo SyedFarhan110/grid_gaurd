@@ -35,7 +35,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 
 export default function Classification() {
   const { state } = useApp();
-  const result = state.latestResult;
+  const result = state.stickyFaultResult ?? state.latestResult;
   const cls    = result?.classification;
 
   const faultLabel = cls?.fault_type_label ?? 'No Fault';
@@ -64,13 +64,16 @@ export default function Classification() {
 
   if (!result || !cls) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 300 }}>
-        <div style={{ textAlign: 'center' }}>
-          <Tag size={32} color="var(--text-dim)" style={{ margin: '0 auto 12px' }} />
-          <p style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-dim)' }}>
-            Run a pipeline scan to classify fault type
-          </p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 300 }}>
+          <div style={{ textAlign: 'center' }}>
+            <Tag size={32} color="var(--text-dim)" style={{ margin: '0 auto 12px' }} />
+            <p style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-dim)' }}>
+              Run a pipeline scan to classify fault type
+            </p>
+          </div>
         </div>
+        {/* Fault stack moved to History screen */}
       </div>
     );
   }
@@ -119,6 +122,8 @@ export default function Classification() {
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-dim)', letterSpacing: '0.08em' }}>CONFIDENCE</div>
         </div>
       </div>
+
+      {/* Fault stack moved to History screen */}
 
       {/* Charts + phases */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>

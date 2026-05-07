@@ -25,10 +25,10 @@ function InsightCard({ title, value, trigger, explanation, color, icon: Icon }: 
 
 export default function AnomalyInsights() {
   const { state } = useApp();
-  const result = state.latestResult;
+  const result = state.stickyFaultResult ?? state.latestResult;
   const readings = state.liveReadings.slice(-30);
 
-  const isFault  = state.faultState === 'alert';
+  const isFault  = !!result?.pipeline.fault_predicted;
   const la       = result?.latent_alert;
   const alertType = la?.alert_type ?? 'NORMAL';
 
@@ -90,6 +90,8 @@ export default function AnomalyInsights() {
           </div>
         )}
       </div>
+
+      {/* Fault stack moved to History screen */}
 
       {/* Trigger cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>

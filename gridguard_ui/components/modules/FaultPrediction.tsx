@@ -35,8 +35,8 @@ function buildProbTrend(currentProb: number) {
 
 export default function FaultPrediction() {
   const { state } = useApp();
-  const result = state.latestResult;
-  const isFault = state.faultState === 'alert';
+  const result = state.stickyFaultResult ?? state.latestResult;
+  const isFault = !!result?.pipeline.fault_predicted;
 
   const prob      = result?.pipeline.fault_probability ?? 0;
   const probPct   = Math.round(prob * 100);
@@ -124,6 +124,8 @@ export default function FaultPrediction() {
           </div>
         ))}
       </div>
+
+      {/* Fault stack moved to History screen */}
 
       {/* Probability trend chart */}
       <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 8, padding: 16 }}>

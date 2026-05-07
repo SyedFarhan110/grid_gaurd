@@ -61,18 +61,21 @@ function ETRTimeline({ typicalHours, minHours, maxHours }: { typicalHours: numbe
 
 export default function ETR() {
   const { state } = useApp();
-  const result = state.latestResult;
+  const result = state.stickyFaultResult ?? state.latestResult;
   const etr    = result?.etr;
 
   if (!result || !etr) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 300 }}>
-        <div style={{ textAlign: 'center' }}>
-          <Clock size={32} color="var(--text-dim)" style={{ margin: '0 auto 12px' }} />
-          <p style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-dim)' }}>
-            ETR is computed after fault classification
-          </p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 300 }}>
+          <div style={{ textAlign: 'center' }}>
+            <Clock size={32} color="var(--text-dim)" style={{ margin: '0 auto 12px' }} />
+            <p style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-dim)' }}>
+              ETR is computed after fault classification
+            </p>
+          </div>
         </div>
+        {/* Fault stack moved to History screen */}
       </div>
     );
   }
@@ -108,6 +111,8 @@ export default function ETR() {
           </div>
         ))}
       </div>
+
+      {/* Fault stack moved to History screen */}
 
       {/* Progress bar */}
       <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 8, padding: 16 }}>

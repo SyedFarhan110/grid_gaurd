@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import { useApp } from '@/lib/store';
 import { RefreshCw, Cpu, Wifi, WifiOff } from 'lucide-react';
+import StreamingStatus from './StreamingStatus';
 
 export default function Header() {
   const { state, runPipeline, triggerFaultDemo, triggerNormalDemo } = useApp();
@@ -92,6 +93,9 @@ export default function Header() {
             </span>
           </div>
         )}
+
+        {/* Streaming status */}
+        <StreamingStatus />
 
         {/* Demo buttons */}
         <button onClick={triggerNormalDemo} style={{

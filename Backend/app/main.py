@@ -7,8 +7,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
-from app.routers import models, predict, results, health
+from app.routers import models, predict, results, health, stream
 from app.core.model_registry import model_registry
+from app.core.stream_manager import stream_manager
 
 
 @asynccontextmanager
@@ -57,6 +58,7 @@ app.include_router(health.router,   prefix="/health",  tags=["Health"])
 app.include_router(models.router,   prefix="/models",  tags=["Models"])
 app.include_router(predict.router,  prefix="/predict", tags=["Predictions"])
 app.include_router(results.router,  prefix="/results", tags=["Results"])
+app.include_router(stream.router,   prefix="/stream",  tags=["Stream"])
 
 
 @app.get("/", tags=["Root"])
@@ -71,5 +73,6 @@ def root():
             "models":  "/models",
             "predict": "/predict",
             "results": "/results",
+            "stream":  "/stream/events",
         },
     }

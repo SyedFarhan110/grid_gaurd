@@ -81,7 +81,7 @@ export default function Dashboard() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16, height: '100%' }}>
 
-      {/* ── Top Status Banner ─────────────────────────────────── */}
+      {/* Top Status Banner */}
       <div style={{
         background: isFault ? 'var(--alert-dim)' : 'var(--normal-dim)',
         border: `1px solid ${isFault ? 'var(--alert-500)' : 'var(--normal-500)'}`,
@@ -145,7 +145,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* ── Stats Row ─────────────────────────────────────────── */}
+      {/* Stats Row */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
         <StatCard label="AVG VOLTAGE"    value={voltage} unit="V"   icon={Zap}         color="var(--accent-400)" />
         <StatCard label="AVG CURRENT"    value={current} unit="A"   icon={Activity}    color="var(--warn-500)"   />
@@ -153,10 +153,12 @@ export default function Dashboard() {
         <StatCard label="FEEDER LOAD"    value={load}    unit="MW"  icon={Thermometer} color="var(--alert-400)"  />
       </div>
 
-      {/* ── Charts + Map + Alerts ─────────────────────────────── */}
+      {/* Fault stack moved to History screen */}
+
+      {/* Charts + Map + Alerts */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, flex: 1 }}>
 
-        {/* Live chart — voltage & current */}
+        {/* Live chart - voltage & current */}
         <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 8, padding: 16 }}>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 12, letterSpacing: '0.06em' }}>
             LIVE READINGS — VOLTAGE / CURRENT

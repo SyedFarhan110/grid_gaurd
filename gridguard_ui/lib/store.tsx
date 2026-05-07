@@ -1,6 +1,7 @@
 'use client';
 import React, { createContext, useContext, useReducer, useCallback, useRef } from 'react';
 import { api, PipelineResult, ModelStatus, ResultsSummary } from '@/lib/api';
+import { streamManager, StreamEvent } from '@/lib/streaming';
 
 // ── Demo Results (offline demo data) ────────────────────────────────────────────
 function createDemoResult(isFault: boolean): PipelineResult {
@@ -97,7 +98,10 @@ export interface LiveReading {
 interface AppState {
   activeModule: string;
   faultState: 'normal' | 'alert';
+  faultModulesUnlocked: boolean;
   latestResult: PipelineResult | null;
+  stickyFaultResult: PipelineResult | null;
+  faultStacks: Record<string, PipelineResult[]>;
   history: PipelineResult[];
   modelStatus: ModelStatus | null;
   summary: ResultsSummary | null;
@@ -106,6 +110,8 @@ interface AppState {
   error: string | null;
   lastPollTime: string | null;
   weatherData: { temp: number; humidity: number; wind: number; rain: number; condition: string };
+  streamConnected: boolean;
+  streamError: string | null;
 }
 
 type Action =
@@ -118,7 +124,10 @@ type Action =
   | { type: 'SET_LOADING'; payload: boolean }
   | { type: 'SET_ERROR'; payload: string | null }
   | { type: 'SET_POLL_TIME'; payload: string }
-  | { type: 'SET_WEATHER'; payload: AppState['weatherData'] };
+  | { type: 'SET_WEATHER'; payload: AppState['weatherData'] }
+  | { type: 'SET_STREAM_CONNECTED'; payload: boolean }
+  | { type: 'SET_STREAM_ERROR'; payload: string | null }
+  | { type: 'STREAM_EVENT'; payload: StreamEvent };
 
 function generateLiveReading(base: Partial<LiveReading> = {}): LiveReading {
   const now = new Date();
@@ -134,24 +143,39 @@ function generateLiveReading(base: Partial<LiveReading> = {}): LiveReading {
 
 function initLiveReadings(): LiveReading[] {
   const readings: LiveReading[] = [];
-  const now = Date.now();
   for (let i = 29; i >= 0; i--) {
-    const t = new Date(now - i * 10000);
+    const minutesAgo = i;
     readings.push({
-      time: t.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-      voltage:      220 + (Math.random() - 0.5) * 10,
-      current:      145 + (Math.random() - 0.5) * 18,
-      power_factor: 0.88 + (Math.random() - 0.5) * 0.05,
-      load:         8.5  + (Math.random() - 0.5) * 1.5,
+      time: `${String(12 + Math.floor(minutesAgo / 60)).padStart(2, '0')}:${String(minutesAgo % 60).padStart(2, '0')}:00`,
+      voltage:      220 + ((i % 5) - 2) * 1.2,
+      current:      145 + ((i % 7) - 3) * 1.1,
+      power_factor: 0.88 + ((i % 4) - 1.5) * 0.005,
+      load:         8.5  + ((i % 6) - 2.5) * 0.12,
     });
   }
   return readings;
+}
+
+const FAULT_STACK_MODULES = ['dashboard', 'fault-prediction', 'classification', 'localization', 'etr', 'anomaly'];
+
+function pushFaultToStacks(stacks: Record<string, PipelineResult[]>, result: PipelineResult): Record<string, PipelineResult[]> {
+  const nextStacks: Record<string, PipelineResult[]> = { ...stacks };
+  for (const moduleId of FAULT_STACK_MODULES) {
+    const moduleStack = nextStacks[moduleId] ?? [];
+    if (moduleStack[0]?.id === result.id) {
+      continue;
+    }
+    nextStacks[moduleId] = [result, ...moduleStack.filter(item => item.id !== result.id)].slice(0, 10);
+  }
+  return nextStacks;
 }
 
 const initialState: AppState = {
   activeModule:  'dashboard',
   faultState:    'normal',
   latestResult:  null,
+  stickyFaultResult: null,
+  faultStacks:   {},
   history:       [],
   modelStatus:   null,
   summary:       null,
@@ -160,12 +184,25 @@ const initialState: AppState = {
   error:         null,
   lastPollTime:  null,
   weatherData:   { temp: 36, humidity: 62, wind: 12, rain: 0, condition: 'Clear' },
+  streamConnected: false,
+  streamError:   null,
+  faultModulesUnlocked: false,
 };
 
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case 'SET_MODULE':       return { ...state, activeModule: action.payload };
-    case 'SET_RESULT':       return { ...state, latestResult: action.payload, faultState: action.payload.pipeline.fault_predicted ? 'alert' : 'normal' };
+    case 'SET_RESULT': {
+      const isFault = action.payload.pipeline.fault_predicted;
+      return {
+        ...state,
+        latestResult: action.payload,
+        stickyFaultResult: isFault ? action.payload : state.stickyFaultResult,
+        faultState: isFault ? 'alert' : 'normal',
+        faultModulesUnlocked: isFault || state.faultModulesUnlocked,
+        faultStacks: isFault ? pushFaultToStacks(state.faultStacks, action.payload) : state.faultStacks,
+      };
+    }
     case 'SET_HISTORY':      return { ...state, history: action.payload };
     case 'SET_MODEL_STATUS': return { ...state, modelStatus: action.payload };
     case 'SET_SUMMARY':      return { ...state, summary: action.payload };
@@ -173,9 +210,46 @@ function reducer(state: AppState, action: Action): AppState {
     case 'SET_ERROR':        return { ...state, error: action.payload };
     case 'SET_POLL_TIME':    return { ...state, lastPollTime: action.payload };
     case 'SET_WEATHER':      return { ...state, weatherData: action.payload };
+    case 'SET_STREAM_CONNECTED': return { ...state, streamConnected: action.payload };
+    case 'SET_STREAM_ERROR': return { ...state, streamError: action.payload };
     case 'ADD_LIVE_READING': {
       const readings = [...state.liveReadings, action.payload];
       return { ...state, liveReadings: readings.slice(-60) };
+    }
+    case 'STREAM_EVENT': {
+      const event = action.payload;
+      const result = event.pipeline_result ?? (event as any).prediction;
+      const timestamp = event.timestamp || new Date().toISOString();
+      if (!result?.pipeline) {
+        return {
+          ...state,
+          streamError: 'Received stream event without prediction data',
+        };
+      }
+      const readings = [...state.liveReadings];
+      
+      // Add live reading from raw data if available
+      if (event.raw_data) {
+        readings.push({
+          time: new Date(timestamp).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+          voltage: event.raw_data.Avg_Voltage || 220,
+          current: event.raw_data.Avg_Current || 145,
+          power_factor: event.raw_data.Average_PF || 0.88,
+          load: event.raw_data.KW_Plus || 8.5,
+        });
+      }
+
+      return {
+        ...state,
+        latestResult: result,
+        stickyFaultResult: result.pipeline.fault_predicted ? result : state.stickyFaultResult,
+        faultState: result.pipeline.fault_predicted ? 'alert' : 'normal',
+        faultModulesUnlocked: state.faultModulesUnlocked || result.pipeline.fault_predicted,
+        faultStacks: result.pipeline.fault_predicted ? pushFaultToStacks(state.faultStacks, result) : state.faultStacks,
+        liveReadings: readings.slice(-60),
+        lastPollTime: new Date(timestamp).toLocaleTimeString(),
+        streamError: null,
+      };
     }
     default: return state;
   }
@@ -195,14 +269,60 @@ const AppContext = createContext<AppContextValue | null>(null);
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const unsubscribeRef = useRef<(() => void) | null>(null);
+  const errorUnsubscribeRef = useRef<(() => void) | null>(null);
 
-  // Live readings ticker
+  // Initialize streaming connection
   React.useEffect(() => {
-    const tick = setInterval(() => {
-      dispatch({ type: 'ADD_LIVE_READING', payload: generateLiveReading() });
-    }, 3000);
-    return () => clearInterval(tick);
+    console.log('[AppProvider] Initializing streaming connection');
+    
+    // Connect to stream
+    streamManager.connect()
+      .then(() => {
+        console.log('[AppProvider] Streaming connected');
+        dispatch({ type: 'SET_STREAM_CONNECTED', payload: true });
+        dispatch({ type: 'SET_STREAM_ERROR', payload: null });
+      })
+      .catch((err) => {
+        console.error('[AppProvider] Failed to connect to stream:', err);
+        dispatch({ type: 'SET_STREAM_ERROR', payload: err.message });
+      });
+
+    // Subscribe to stream events
+    unsubscribeRef.current = streamManager.subscribe((event: StreamEvent) => {
+      console.log('[AppProvider] Received stream event:', event.event_id);
+      dispatch({ type: 'STREAM_EVENT', payload: event });
+    });
+
+    // Subscribe to errors
+    errorUnsubscribeRef.current = streamManager.onError((error: Error) => {
+      console.error('[AppProvider] Stream error:', error);
+      dispatch({ type: 'SET_STREAM_ERROR', payload: error.message });
+      // If stream disconnects, try reconnecting
+      setTimeout(() => {
+        streamManager.connect()
+          .then(() => dispatch({ type: 'SET_STREAM_CONNECTED', payload: true }))
+          .catch(() => dispatch({ type: 'SET_STREAM_CONNECTED', payload: false }));
+      }, 5000);
+    });
+
+    return () => {
+      if (unsubscribeRef.current) unsubscribeRef.current();
+      if (errorUnsubscribeRef.current) errorUnsubscribeRef.current();
+      streamManager.disconnect();
+    };
   }, []);
+
+  // Live readings ticker (fallback if streaming is not available)
+  React.useEffect(() => {
+    // Only generate live readings if not connected to stream
+    if (!state.streamConnected) {
+      const tick = setInterval(() => {
+        dispatch({ type: 'ADD_LIVE_READING', payload: generateLiveReading() });
+      }, 3000);
+      return () => clearInterval(tick);
+    }
+  }, [state.streamConnected]);
 
   // Load model status on mount
   React.useEffect(() => {

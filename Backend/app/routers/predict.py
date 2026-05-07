@@ -12,6 +12,9 @@ from fastapi import APIRouter, HTTPException
 from typing import Dict, Any, List, Optional
 import numpy as np
 import traceback
+import os
+import csv
+import re
 
 from app.core.model_registry import model_registry, FAULT_TYPE_LABELS, SUBSTATION_LABELS, ETR_LOOKUP
 from app.core.feature_engineering import (
@@ -30,6 +33,62 @@ from app.schemas.schemas import (
 )
 
 router = APIRouter()
+
+
+def _normalize_loc_name(value: str) -> str:
+    value = (value or "").lower().strip()
+    value = value.replace("substation", "")
+    value = value.replace("grid station", "")
+    value = value.replace("grid", "")
+    value = re.sub(r"[^a-z0-9\s-]", " ", value)
+    value = re.sub(r"\s+", " ", value)
+    return value.strip()
+
+
+def _load_etr_area_factors() -> Dict[str, float]:
+    """Build area multipliers from etr_dataset.csv using median outage duration."""
+    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    dataset_path = os.path.join(base_dir, "data", "etr_dataset.csv")
+    if not os.path.exists(dataset_path):
+        return {}
+
+    area_to_durations: Dict[str, List[float]] = {}
+    all_durations: List[float] = []
+
+    with open(dataset_path, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            area_raw = row.get("Area", "")
+            duration_raw = row.get("Outage_duration", "")
+            area_key = _normalize_loc_name(area_raw)
+            if not area_key:
+                continue
+            try:
+                duration = float(duration_raw)
+            except Exception:
+                continue
+            if not np.isfinite(duration) or duration < 0:
+                continue
+            area_to_durations.setdefault(area_key, []).append(duration)
+            all_durations.append(duration)
+
+    if not all_durations:
+        return {}
+
+    # Infer unit from distribution. Dataset appears minute-based for large values.
+    global_median = float(np.median(all_durations))
+    unit_divisor = 60.0 if global_median > 48 else 1.0
+    global_hours = max(0.25, global_median / unit_divisor)
+
+    factors: Dict[str, float] = {}
+    for area_key, values in area_to_durations.items():
+        area_median = float(np.median(values)) / unit_divisor
+        factors[area_key] = float(np.clip(area_median / global_hours, 0.6, 1.9))
+
+    return factors
+
+
+ETR_AREA_FACTORS = _load_etr_area_factors()
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -79,14 +138,16 @@ def _run_localization(data: Dict) -> Dict:
     sub_pred = int(sub_model.predict(X.values)[0])
     sub_name = SUBSTATION_LABELS.get(sub_pred, f"Zone {sub_pred}")
 
-    # Distance: use ML model if uploaded, else rule-based from Z_apparent
+    # Distance: use ML model if uploaded, else rule-based from Z_apparent.
+    # The trained regressor is documented as predicting distance in km directly.
     dist_source = "ml_model"
     try:
         dist_model = model_registry.get("distance_localization")
-        log_dist   = float(dist_model.predict(X.values)[0])
-        # Output is log-transformed — apply exp inverse
-        dist_km    = round(float(np.expm1(log_dist)), 2)
-        dist_km    = max(0.5, dist_km)
+        raw_dist   = float(dist_model.predict(X.values)[0])
+        if not np.isfinite(raw_dist):
+            raise ValueError("distance model returned a non-finite value")
+        # Clamp to a realistic feeder distance range to avoid runaway outputs.
+        dist_km    = round(float(np.clip(raw_dist, 0.5, 90.0)), 2)
     except Exception:
         # Fallback: estimate from Z_apparent (V3/I1 is an impedance proxy for distance)
         z_apparent  = data["V3"] / (data["I1"] + 1e-6)
@@ -102,7 +163,46 @@ def _run_localization(data: Dict) -> Dict:
     }
 
 
-def _run_etr(fault_type_label: str) -> Dict:
+def _location_factor(localization: Optional[Dict[str, Any]]) -> float:
+    if not localization:
+        return 1.0
+
+    zone_or_name = str(
+        localization.get("zone")
+        or localization.get("substation_name")
+        or ""
+    ).lower()
+
+    # Area factor from etr_dataset.csv (median outage duration by area).
+    area_factor = 1.0
+    if ETR_AREA_FACTORS:
+        normalized_zone = _normalize_loc_name(zone_or_name)
+        best_key = ""
+        for area_key in ETR_AREA_FACTORS.keys():
+            if area_key and (area_key in normalized_zone or normalized_zone in area_key):
+                if len(area_key) > len(best_key):
+                    best_key = area_key
+        if best_key:
+            area_factor = ETR_AREA_FACTORS[best_key]
+
+    # Distance factor: farther faults generally increase dispatch/isolation/repair time.
+    distance_km = localization.get("distance_km")
+    try:
+        distance_km = float(distance_km)
+    except Exception:
+        distance_km = 0.0
+    distance_km = float(np.clip(distance_km, 0.0, 90.0))
+    distance_factor = 0.92 + (distance_km / 320.0)  # ~0.92 to ~1.20
+
+    return float(np.clip(area_factor * distance_factor, 0.7, 1.6))
+
+
+def _run_etr(
+    fault_type_label: str,
+    pipeline: Optional[Dict[str, Any]] = None,
+    latent_alert: Optional[Dict[str, Any]] = None,
+    localization: Optional[Dict[str, Any]] = None,
+) -> Dict:
     """
     ETR model output is in log-transformed form (log1p during training).
     Apply np.expm1() to convert back to actual hours.
@@ -123,6 +223,20 @@ def _run_etr(fault_type_label: str) -> Dict:
         info = ETR_LOOKUP.get(fault_type_label, ETR_LOOKUP["Single Line-to-Ground (SLG)"])
         typical = info["typical_hours"]
 
+    # Contextual adjustment so same fault type can produce different ETR by area/severity.
+    risk_level = str((pipeline or {}).get("risk_level", "LOW")).upper()
+    risk_factor_map = {
+        "LOW": 0.95,
+        "MEDIUM": 1.05,
+        "HIGH": 1.15,
+        "CRITICAL": 1.30,
+    }
+    risk_factor = risk_factor_map.get(risk_level, 1.0)
+    anomaly_factor = 1.12 if bool((latent_alert or {}).get("anomaly_detected")) else 1.0
+    location_factor = _location_factor(localization)
+
+    typical = round(max(0.0, typical * risk_factor * anomaly_factor * location_factor), 2)
+
     if typical == 0:
         readable = "No recovery needed"
     elif typical < 1:
@@ -132,14 +246,22 @@ def _run_etr(fault_type_label: str) -> Dict:
     else:
         readable = f"~{typical:.1f} hours"
 
-    info = ETR_LOOKUP.get(fault_type_label, ETR_LOOKUP["Single Line-to-Ground (SLG)"])
+    if typical == 0:
+        min_hours = 0.0
+        max_hours = 0.0
+    else:
+        # Dynamic range around context-adjusted typical; avoids rigid fixed multiples.
+        spread = 0.28 + (0.18 if bool((latent_alert or {}).get("anomaly_detected")) else 0.0)
+        min_hours = round(max(0.0, typical * (0.72 - spread * 0.2)), 2)
+        max_hours = round(max(typical, typical * (1.38 + spread)), 2)
+
     return {
         "fault_type":         fault_type_label,
         "typical_hours":      typical,
-        "min_hours":          info["min_hours"],
-        "max_hours":          info["max_hours"],
+        "min_hours":          min_hours,
+        "max_hours":          max_hours,
         "estimated_recovery": readable,
-        "source":             "ml_model" if _etr_model_loaded() else "lookup_table",
+        "source":             "contextual_ml" if _etr_model_loaded() else "contextual_lookup",
     }
 
 
@@ -240,7 +362,12 @@ def run_full_pipeline(payload: FullPipelineInput) -> Dict[str, Any]:
                 stages_run.append("fault_localization")
 
             # Step 5: ETR
-            etr_result = _run_etr(cls_result["fault_type_label"])
+            etr_result = _run_etr(
+                cls_result["fault_type_label"],
+                pipeline=fp_result,
+                latent_alert=la_result,
+                localization=result.get("localization"),
+            )
             result["etr"] = etr_result
             stages_run.append("etr_prediction")
 
@@ -298,8 +425,15 @@ def detect_latent_alert(payload: LatentAlertInput) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/etr", summary="ETR lookup by fault type")
-def get_etr(fault_type_label: str) -> Dict[str, Any]:
+@router.post("/etr", summary="ETR estimation by fault type (+optional context)")
+def get_etr(
+    fault_type_label: str,
+    substation_name: Optional[str] = None,
+    zone: Optional[str] = None,
+    distance_km: Optional[float] = None,
+    risk_level: Optional[str] = None,
+    anomaly_detected: Optional[bool] = None,
+) -> Dict[str, Any]:
     """
     Returns Estimated Time to Recovery for a given fault type label.
 
@@ -312,6 +446,27 @@ def get_etr(fault_type_label: str) -> Dict[str, Any]:
     - Three-Phase-to-Ground (3PG)
     """
     try:
-        return _run_etr(fault_type_label)
+        localization_ctx: Dict[str, Any] = {}
+        if substation_name is not None:
+            localization_ctx["substation_name"] = substation_name
+        if zone is not None:
+            localization_ctx["zone"] = zone
+        if distance_km is not None:
+            localization_ctx["distance_km"] = distance_km
+
+        pipeline_ctx: Dict[str, Any] = {}
+        if risk_level is not None:
+            pipeline_ctx["risk_level"] = risk_level
+
+        latent_ctx: Dict[str, Any] = {}
+        if anomaly_detected is not None:
+            latent_ctx["anomaly_detected"] = anomaly_detected
+
+        return _run_etr(
+            fault_type_label,
+            pipeline=pipeline_ctx,
+            latent_alert=latent_ctx,
+            localization=localization_ctx,
+        )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
