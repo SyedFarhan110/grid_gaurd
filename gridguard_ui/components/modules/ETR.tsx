@@ -122,6 +122,9 @@ export default function ETR() {
     );
   }
 
+  const areaLabel = result?.localization?.zone ?? result?.localization?.substation_name ?? 'Area not available';
+  const faultTypeLabel = result?.classification?.fault_type_label ?? 'Fault type not available';
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
@@ -139,7 +142,7 @@ export default function ETR() {
           fontSize: isMobile ? 9 : 10,
           color: 'var(--text-dim)', margin: '4px 0 0', letterSpacing: '0.06em',
         }}>
-          Based on fault type ·{' '}
+          Shows predicted fault type and affected area ·{' '}
           {etr.source === 'ml_model' ? 'ML Model (np.expm1 inverse-log)' : 'Rule-based lookup table'}
         </p>
       </div>
@@ -165,16 +168,53 @@ export default function ETR() {
         </div>
       </div>
 
-      {/* ── Fault type badge ── */}
+      {/* ── Fault and area badges ── */}
       <div style={{
-        background: 'var(--bg-card)', border: '1px solid var(--border-subtle)',
-        borderRadius: 8, padding: 16,
+        display: 'grid',
+        gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
+        gap: 12,
       }}>
         <div style={{
-          fontFamily: 'var(--font-mono)', fontSize: 11,
-          color: 'var(--text-secondary)', letterSpacing: '0.06em',
+          background: 'var(--bg-card)', border: '1px solid var(--border-subtle)',
+          borderRadius: 8, padding: 16,
         }}>
-          FAULT TYPE: {etr.fault_type}
+          <div style={{
+            fontFamily: 'var(--font-mono)', fontSize: 11,
+            color: 'var(--text-secondary)', letterSpacing: '0.06em',
+          }}>
+            PREDICTED FAULT TYPE
+          </div>
+          <div style={{
+            marginTop: 6,
+            fontFamily: 'var(--font-display)',
+            fontSize: isMobile ? 16 : 18,
+            fontWeight: 800,
+            color: 'var(--text-primary)',
+          }}>
+            {faultTypeLabel}
+          </div>
+
+        </div>
+
+        <div style={{
+          background: 'var(--bg-card)', border: '1px solid var(--border-subtle)',
+          borderRadius: 8, padding: 16,
+        }}>
+          <div style={{
+            fontFamily: 'var(--font-mono)', fontSize: 11,
+            color: 'var(--text-secondary)', letterSpacing: '0.06em',
+          }}>
+            AFFECTED AREA
+          </div>
+          <div style={{
+            marginTop: 6,
+            fontFamily: 'var(--font-display)',
+            fontSize: isMobile ? 16 : 18,
+            fontWeight: 800,
+            color: 'var(--accent-500)',
+          }}>
+            {areaLabel}
+          </div>
         </div>
       </div>
 

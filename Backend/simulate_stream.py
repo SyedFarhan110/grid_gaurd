@@ -7,7 +7,7 @@ from itertools import cycle
 
 # Configuration
 CSV_PATH = "data/unified_pipeline_stream.csv"
-API_URL = "http://127.0.0.1:8000/predict/pipeline"
+API_URL = "http://127.0.0.1:8006/predict/pipeline"
 DELAY_SECONDS = 1.0  # Time to wait between requests
 load_history_buffer = deque(maxlen=60)
 

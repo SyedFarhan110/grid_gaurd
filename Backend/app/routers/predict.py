@@ -145,15 +145,14 @@ def _run_fault_prediction(data: Dict) -> Dict:
 
 def _run_fault_classification(data: Dict) -> Dict:
     model = model_registry.get("fault_classification")
-    le    = model_registry.get("fault_classification_le")
     X     = prepare_fault_classification_features(data)
 
     pred  = int(model.predict(X)[0])
     proba = model.predict_proba(X)[0]
-    label = le.inverse_transform([pred])[0]
+    label = FAULT_TYPE_LABELS.get(pred, str(pred))
 
     all_probs = {
-        le.inverse_transform([i])[0]: round(float(p) * 100, 2)
+        FAULT_TYPE_LABELS.get(i, str(i)): round(float(p) * 100, 2)
         for i, p in enumerate(proba)
     }
     return {

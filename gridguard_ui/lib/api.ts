@@ -1,6 +1,6 @@
 // lib/api.ts — All FastAPI backend calls
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8006';
 
 export interface FaultPredictionInput {
   KW_Plus: number;
