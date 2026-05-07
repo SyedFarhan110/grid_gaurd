@@ -4,21 +4,21 @@ import { RadarChart, Radar, PolarGrid, PolarAngleAxis, ResponsiveContainer, BarC
 import { Tag, CheckCircle } from 'lucide-react';
 
 const FAULT_COLORS: Record<string, string> = {
-  'No Fault':                    'var(--normal-500)',
-  'Single Line-to-Ground (SLG)': 'var(--accent-500)',
-  'Line-to-Line (LL)':           'var(--warn-500)',
-  'Double Line-to-Ground (DLG)': '#FF8C42',
-  'Three-Phase (3PH)':           'var(--alert-500)',
-  'Three-Phase-to-Ground (3PG)': '#CC2244',
+  'No Fault': 'var(--normal-500)',
+  'LG':       'var(--accent-500)',   // Line-to-Ground
+  'LL':       'var(--warn-500)',     // Line-to-Line
+  'LLG':      '#FF8C42',             // Double Line-to-Ground
+  'LLL':      'var(--alert-500)',    // Three-Phase
+  'LLLG':     '#CC2244',             // Three-Phase-to-Ground
 };
 
 const FAULT_DESCRIPTIONS: Record<string, string> = {
-  'No Fault':                    'All phases operating normally. No intervention required.',
-  'Single Line-to-Ground (SLG)': 'One phase has contacted ground. Most common fault (~70% of faults). Affects single feeder.',
-  'Line-to-Line (LL)':           'Two phases in contact with each other. High fault current. Requires prompt isolation.',
-  'Double Line-to-Ground (DLG)': 'Two phases grounded simultaneously. Severe imbalance. Substation protection should activate.',
-  'Three-Phase (3PH)':           'All three phases faulted symmetrically. Rare but most severe. Full circuit isolation required.',
-  'Three-Phase-to-Ground (3PG)': 'All three phases grounded. Maximum fault severity. Emergency response required immediately.',
+  'No Fault': 'All phases operating normally. No intervention required.',
+  'LG':       'Line-to-Ground fault. One phase contacted ground. Most common (~70%). Affects single feeder.',
+  'LL':       'Line-to-Line fault. Two phases in contact. High fault current. Requires prompt isolation.',
+  'LLG':      'Double Line-to-Ground. Two phases grounded simultaneously. Substation protection activates.',
+  'LLL':      'Three-Phase fault. All phases affected symmetrically. Rare but severe. Full isolation required.',
+  'LLLG':     'Three-Phase-to-Ground. Maximum severity. Emergency response required immediately.',
 };
 
 const CustomTooltip = ({ active, payload, label }: any) => {
@@ -54,12 +54,21 @@ export default function Classification() {
   // Radar chart data derived from probabilities
   const radarData = probData.map(d => ({ subject: d.shortName, value: d.value }));
 
-  // Phase indicators (simulated from classification input context)
+  // Phase map for fault type to involved phases
+  const PHASE_MAP: Record<string, { A: boolean; B: boolean; C: boolean; G: boolean }> = {
+    'LG':       { A: true,  B: false, C: false, G: true  },
+    'LL':       { A: false, B: true,  C: true,  G: false },
+    'LLG':      { A: false, B: true,  C: true,  G: true  },
+    'LLL':      { A: true,  B: true,  C: true,  G: false },
+    'LLLG':     { A: true,  B: true,  C: true,  G: true  },
+    'No Fault': { A: false, B: false, C: false, G: false },
+  };
+  const phases = PHASE_MAP[faultLabel] ?? PHASE_MAP['No Fault'];
   const phaseData = [
-    { phase: 'Phase A (Ia)', value: cls?.fault_type_code === 1 ? 'FAULT' : 'NORMAL', abnormal: cls?.fault_type_code === 1 },
-    { phase: 'Phase B (Ib)', value: [2,3,4,5].includes(cls?.fault_type_code ?? 0) ? 'FAULT' : 'NORMAL', abnormal: [2,3,4,5].includes(cls?.fault_type_code ?? 0) },
-    { phase: 'Phase C (Ic)', value: [4,5].includes(cls?.fault_type_code ?? 0) ? 'FAULT' : 'NORMAL', abnormal: [4,5].includes(cls?.fault_type_code ?? 0) },
-    { phase: 'Ground (G)',   value: [1,3,5].includes(cls?.fault_type_code ?? 0) ? 'INVOLVED' : 'CLEAR', abnormal: [1,3,5].includes(cls?.fault_type_code ?? 0) },
+    { phase: 'Phase A (Ia)', value: phases.A ? 'FAULT' : 'NORMAL', abnormal: phases.A },
+    { phase: 'Phase B (Ib)', value: phases.B ? 'FAULT' : 'NORMAL', abnormal: phases.B },
+    { phase: 'Phase C (Ic)', value: phases.C ? 'FAULT' : 'NORMAL', abnormal: phases.C },
+    { phase: 'Ground (G)',   value: phases.G ? 'INVOLVED' : 'CLEAR', abnormal: phases.G },
   ];
 
   if (!result || !cls) {

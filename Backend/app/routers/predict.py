@@ -116,52 +116,52 @@ def _run_fault_prediction(data: Dict) -> Dict:
 
 def _run_fault_classification(data: Dict) -> Dict:
     model = model_registry.get("fault_classification")
-    X = prepare_fault_classification_features(data)
-    pred = int(model.predict(X)[0])
+    le    = model_registry.get("fault_classification_le")   # ADD THIS
+    X     = prepare_fault_classification_features(data)
+
+    pred  = int(model.predict(X)[0])
     proba = model.predict_proba(X)[0]
-    label = FAULT_TYPE_LABELS.get(pred, f"Unknown ({pred})")
+
+    # REPLACE hardcoded FAULT_TYPE_LABELS lookup WITH:
+    label = le.inverse_transform([pred])[0]   # e.g. "LG", "LL", "No Fault"
+
     all_probs = {
-        FAULT_TYPE_LABELS[i]: round(float(p) * 100, 2)
+        le.inverse_transform([i])[0]: round(float(p) * 100, 2)
         for i, p in enumerate(proba)
     }
     return {
-        "fault_type_code":    pred,
-        "fault_type_label":   label,
-        "confidence_pct":     round(float(max(proba)) * 100, 2),
-        "all_probabilities":  all_probs,
+        "fault_type_code":   pred,
+        "fault_type_label":  label,
+        "confidence_pct":    round(float(max(proba)) * 100, 2),
+        "all_probabilities": all_probs,
     }
 
 
 def _run_localization(data: Dict) -> Dict:
-    sub_model = model_registry.get("substation_localization")
-    X = prepare_localization_features(data)
-    sub_pred = int(sub_model.predict(X.values)[0])
-    sub_name = SUBSTATION_LABELS.get(sub_pred, f"Zone {sub_pred}")
+    sub_model    = model_registry.get("substation_localization")
+    dist_model   = model_registry.get("distance_localization")
+    sub_scaler   = model_registry.get("substation_scaler")       # ADD
+    dist_scaler  = model_registry.get("distance_scaler")         # ADD
+    le_sub       = model_registry.get("substation_le")           # ADD
+    le_fault_zone= model_registry.get("fault_zone_le")           # ADD
 
-    # Distance: use ML model if uploaded, else rule-based from Z_apparent.
-    # The trained regressor is documented as predicting distance in km directly.
-    dist_source = "ml_model"
-    try:
-        dist_model = model_registry.get("distance_localization")
-        raw_dist   = float(dist_model.predict(X.values)[0])
-        if not np.isfinite(raw_dist):
-            raise ValueError("distance model returned a non-finite value")
-        # Clamp to a realistic feeder distance range to avoid runaway outputs.
-        dist_km    = round(float(np.clip(raw_dist, 0.5, 90.0)), 2)
-    except Exception:
-        # Fallback: estimate from Z_apparent (V3/I1 is an impedance proxy for distance)
-        z_apparent  = data["V3"] / (data["I1"] + 1e-6)
-        dist_km     = round(min(90.0, max(0.5, abs(z_apparent) * 0.3)), 1)
-        dist_source = "estimated"
+    X            = prepare_localization_features(data)
+    X_sub_scaled = sub_scaler.transform(X.values)                # scale for substation
+    X_dst_scaled = dist_scaler.transform(X.values)               # scale for distance
+
+    sub_pred  = int(sub_model.predict(X_sub_scaled)[0])
+    sub_name  = le_sub.inverse_transform([sub_pred])[0]          # "Malir Substation"
+    zone_name = sub_name.replace(" Substation", "")              # "Malir"
+
+    dist_km   = round(float(dist_model.predict(X_dst_scaled)[0]), 2)  # raw km, NO expm1
 
     return {
         "substation_id":   sub_pred,
         "substation_name": sub_name,
         "distance_km":     dist_km,
-        "zone":            sub_name.replace(" Substation", ""),
-        "distance_source": dist_source,
+        "zone":            zone_name,
+        "distance_source": "ml_model",
     }
-
 
 def _location_factor(localization: Optional[Dict[str, Any]]) -> float:
     if not localization:
@@ -199,43 +199,56 @@ def _location_factor(localization: Optional[Dict[str, Any]]) -> float:
 
 def _run_etr(
     fault_type_label: str,
-    pipeline: Optional[Dict[str, Any]] = None,
-    latent_alert: Optional[Dict[str, Any]] = None,
-    localization: Optional[Dict[str, Any]] = None,
+    pipeline: Optional[Dict] = None,
+    latent_alert: Optional[Dict] = None,
+    localization: Optional[Dict] = None,
+    area: str = "Saddar",
+    cause: str = "grid station fault"
 ) -> Dict:
-    """
-    ETR model output is in log-transformed form (log1p during training).
-    Apply np.expm1() to convert back to actual hours.
-    Falls back to lookup table if etr_model is not loaded.
-    """
+    """ETR prediction using ML model with proper log/minute/hour conversion."""
+    import numpy as np
+    
     try:
-        etr_model = model_registry.get("etr_prediction")
-        # Encode fault type as integer for the model
-        fault_type_map = {v: k for k, v in FAULT_TYPE_LABELS.items()}
-        fault_code = fault_type_map.get(fault_type_label, 1)
-        X_etr = np.array([[fault_code]])
-        log_pred = float(etr_model.predict(X_etr)[0])
-        # Inverse of log1p transform used during training
-        typical = round(float(np.expm1(log_pred)), 2)
+        etr_model   = model_registry.get("etr_prediction")
+        etr_enc     = model_registry.get("etr_encoders")
+        etr_scaler  = model_registry.get("etr_scaler")
+
+        # Encode categoricals
+        area_enc     = etr_enc["Area"].transform([area])[0]
+        cause_enc    = etr_enc["Cause"].transform([cause])[0]
+        grid_enc     = etr_enc["Grid_Station"].transform(["Nazimabad Grid"])[0]
+        climate_enc  = etr_enc["Climate_Region"].transform(["Inland Karachi"])[0]
+        cat_enc      = etr_enc["Climate_Category"].transform(["warm"])[0]
+
+        # Build 7 numerical features then scale
+        # [delta, duration_est, consumers_est, hour, day, feeder_count, crew_size]
+        num_features = np.array([[0.0, 68.0, 38000.0, 12.0, 15.0, 6.0, 3.0]])
+        num_scaled   = etr_scaler.transform(num_features)
+
+        X_etr = np.hstack([num_scaled, [[area_enc, cause_enc, grid_enc, climate_enc, cat_enc]]])
+        
+        # Model outputs log-transformed minutes
+        log_pred_minutes = float(etr_model.predict(X_etr)[0])
+        # Convert log → minutes using exponential
+        typical_minutes = float(np.expm1(log_pred_minutes))
+        # Convert minutes → hours
+        typical = round(typical_minutes / 60.0, 2)
         typical = max(0.0, typical)
-    except Exception:
-        # Fallback to lookup table when etr_model is not uploaded yet
-        info = ETR_LOOKUP.get(fault_type_label, ETR_LOOKUP["Single Line-to-Ground (SLG)"])
+        
+        # Apply location factor from localization context
+        if localization and typical > 0:
+            try:
+                loc_factor = _location_factor(localization)
+                typical = round(typical * loc_factor, 2)
+            except Exception:
+                pass  # Use base typical if factor fails
+        
+        source = "ml_model"
+    except Exception as e:
+        # Fallback to lookup table if ML model fails
+        info    = ETR_LOOKUP.get(fault_type_label, ETR_LOOKUP.get("LG"))
         typical = info["typical_hours"]
-
-    # Contextual adjustment so same fault type can produce different ETR by area/severity.
-    risk_level = str((pipeline or {}).get("risk_level", "LOW")).upper()
-    risk_factor_map = {
-        "LOW": 0.95,
-        "MEDIUM": 1.05,
-        "HIGH": 1.15,
-        "CRITICAL": 1.30,
-    }
-    risk_factor = risk_factor_map.get(risk_level, 1.0)
-    anomaly_factor = 1.12 if bool((latent_alert or {}).get("anomaly_detected")) else 1.0
-    location_factor = _location_factor(localization)
-
-    typical = round(max(0.0, typical * risk_factor * anomaly_factor * location_factor), 2)
+        source  = "lookup_table"
 
     if typical == 0:
         readable = "No recovery needed"
@@ -246,24 +259,15 @@ def _run_etr(
     else:
         readable = f"~{typical:.1f} hours"
 
-    if typical == 0:
-        min_hours = 0.0
-        max_hours = 0.0
-    else:
-        # Dynamic range around context-adjusted typical; avoids rigid fixed multiples.
-        spread = 0.28 + (0.18 if bool((latent_alert or {}).get("anomaly_detected")) else 0.0)
-        min_hours = round(max(0.0, typical * (0.72 - spread * 0.2)), 2)
-        max_hours = round(max(typical, typical * (1.38 + spread)), 2)
-
+    info = ETR_LOOKUP.get(fault_type_label, ETR_LOOKUP.get("LG"))
     return {
         "fault_type":         fault_type_label,
         "typical_hours":      typical,
-        "min_hours":          min_hours,
-        "max_hours":          max_hours,
+        "min_hours":          info["min_hours"],
+        "max_hours":          info["max_hours"],
         "estimated_recovery": readable,
-        "source":             "contextual_ml" if _etr_model_loaded() else "contextual_lookup",
+        "source":             source,
     }
-
 
 def _etr_model_loaded() -> bool:
     try:
@@ -275,6 +279,9 @@ def _etr_model_loaded() -> bool:
 
 def _run_latent_alert(data: Dict) -> Dict:
     model = model_registry.get("latent_alert")
+    # Compute is_night server-side from hour
+    hour = int(data.get("hour", 0))
+    data["is_night"] = 1 if (hour >= 22 or hour < 6) else 0
     X = prepare_latent_alert_features(data)
     proba = model.predict_proba(X)[0]
     anomaly_prob = float(proba[1])

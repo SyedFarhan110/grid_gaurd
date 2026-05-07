@@ -119,14 +119,11 @@ LATENT_ALERT_FEATURES = [
 ]
 
 SEASON_ENC     = {"winter": 0, "spring": 1, "summer": 2, "monsoon": 3, "autumn": 4}
-TEMP_BUCKET_ENC = {"cold": 0, "mild": 1, "warm": 2, "hot": 3, "extreme": 4}
+TEMP_BUCKET_ENC = {"cold": 0, "cool": 0, "mild": 1, "warm": 2, "hot": 3, "extreme": 4}
 
 
 def prepare_latent_alert_features(data: Dict[str, Any]) -> pd.DataFrame:
-    """
-    Builds all 52 features for the LightGBM anomaly detection model.
-    """
-    df = pd.DataFrame([data])
+    df   = pd.DataFrame([data])
     fl   = float(data.get("feeder_load", 0))
     hour = int(data.get("hour", 0))
     month = int(data.get("month", 1))
@@ -134,7 +131,7 @@ def prepare_latent_alert_features(data: Dict[str, Any]) -> pd.DataFrame:
     temp  = float(data.get("temperature", 30))
     hum   = float(data.get("humidity", 60))
 
-    # Cyclical time encodings
+    # Cyclical encodings — same as before ✅
     df["hour_sin"]  = np.sin(2 * np.pi * hour  / 24)
     df["hour_cos"]  = np.cos(2 * np.pi * hour  / 24)
     df["month_sin"] = np.sin(2 * np.pi * month / 12)
@@ -142,38 +139,60 @@ def prepare_latent_alert_features(data: Dict[str, Any]) -> pd.DataFrame:
     df["dow_sin"]   = np.sin(2 * np.pi * dow   / 7)
     df["dow_cos"]   = np.cos(2 * np.pi * dow   / 7)
 
-    # Categorical encoding
     df["season_enc"]      = SEASON_ENC.get(str(data.get("season", "summer")).lower(), 2)
     df["temp_bucket_enc"] = TEMP_BUCKET_ENC.get(str(data.get("temp_bucket", "warm")).lower(), 2)
 
-    # Baseline-derived load features
+    # FIX: compute is_night server-side — never trust client value
+    df["is_night"] = 1 if (hour >= 22 or hour < 6) else 0
+
     baseline_mean = float(data.get("baseline_mean") or fl * 0.9)
     baseline_std  = float(data.get("baseline_std")  or fl * 0.1)
 
+    # FIX: compute time-series features from load_history if provided
+    load_history = data.get("load_history")
+    if load_history and len(load_history) >= 2:
+        hist = pd.Series(load_history, dtype=float)
+        lag_map   = {1:1, 3:3, 5:5, 10:10, 15:15, 30:30, 60:60}
+        roll_wins = [5, 10, 15, 30, 60]
+        for lag, shift in lag_map.items():
+            df[f"load_lag_{lag}"] = float(hist.iloc[-shift]) if len(hist) > shift else fl
+        for win in roll_wins:
+            sl = hist.iloc[-win:]
+            df[f"roll_mean_{win}"] = float(sl.mean())
+            df[f"roll_std_{win}"]  = float(sl.std()) if len(sl) > 1 else 0.0
+        for win in [5, 10]:
+            sl = hist.iloc[-win:]
+            df[f"roll_range_{win}"] = float(sl.max() - sl.min()) if len(sl) > 1 else 0.0
+        for d in [1, 5, 15]:
+            df[f"load_diff_{d}"]  = fl - float(hist.iloc[-d]) if len(hist) > d else 0.0
+        df["load_abs_diff_1"] = abs(float(df["load_diff_1"].iloc[0]))
+    else:
+        # fallback: all lags = current fl, all diffs/stds = 0
+        for lag in [1,3,5,10,15,30,60]:
+            df[f"load_lag_{lag}"] = fl
+        for win in [5,10,15,30,60]:
+            df[f"roll_mean_{win}"] = fl
+            df[f"roll_std_{win}"]  = 0.0
+        for win in [5,10]:
+            df[f"roll_range_{win}"] = 0.0
+        for d in [1,5,15]:
+            df[f"load_diff_{d}"] = 0.0
+        df["load_abs_diff_1"] = 0.0
+
     defaults = {
-        "load_above_baseline":  max(0.0, fl - baseline_mean),
-        "load_below_baseline":  max(0.0, baseline_mean - fl),
-        "load_vs_baseline_pct": ((fl - baseline_mean) / (baseline_mean + 1e-6)) * 100,
+        "load_above_baseline":   max(0.0, fl - baseline_mean),
+        "load_below_baseline":   max(0.0, baseline_mean - fl),
+        "load_vs_baseline_pct":  ((fl - baseline_mean) / (baseline_mean + 1e-6)) * 100,
         "baseline_mean":  baseline_mean,
         "baseline_std":   baseline_std,
-        "load_diff_1":    0.0, "load_diff_5":  0.0, "load_diff_15": 0.0,
-        "load_abs_diff_1": 0.0,
-        "load_lag_1":  fl, "load_lag_3":  fl, "load_lag_5":  fl,
-        "load_lag_10": fl, "load_lag_15": fl, "load_lag_30": fl, "load_lag_60": fl,
-        "roll_mean_5":  fl, "roll_mean_10": fl, "roll_mean_15": fl,
-        "roll_mean_30": fl, "roll_mean_60": fl,
-        "roll_std_5":  0.0, "roll_std_10":  0.0, "roll_std_15": 0.0,
-        "roll_std_30": 0.0, "roll_std_60":  0.0,
-        "roll_range_5": 0.0, "roll_range_10": 0.0,
-        "apparent_temp":      temp + 0.33 * hum / 100 * 6.1078 - 4,
-        "heat_load_ratio":    fl  / (temp + 1e-6),
-        "humidity_load_ratio":fl  / (hum  + 1e-6),
-        "temp_x_load":        fl  * temp,
-        "temp_x_humidity":    temp * hum,
-        "is_extreme_heat":    1 if temp > 42 else 0,
-        "heat_peak":          1 if (temp > 38 and hour in range(12, 18)) else 0,
+        "apparent_temp":         temp + 0.33 * hum / 100 * 6.1078 - 4,
+        "heat_load_ratio":       fl  / (temp + 1e-6),
+        "humidity_load_ratio":   fl  / (hum  + 1e-6),
+        "temp_x_load":           fl  * temp,
+        "temp_x_humidity":       temp * hum,
+        "is_extreme_heat":       1 if temp > 42 else 0,
+        "heat_peak":             1 if (temp > 38 and hour in range(12, 18)) else 0,
     }
-
     for col, val in defaults.items():
         if col not in df.columns:
             df[col] = val

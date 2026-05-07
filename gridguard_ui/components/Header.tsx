@@ -1,11 +1,11 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useApp } from '@/lib/store';
-import { RefreshCw, Cpu, Wifi, WifiOff } from 'lucide-react';
+import { Cpu } from 'lucide-react';
 import StreamingStatus from './StreamingStatus';
 
 export default function Header() {
-  const { state, runPipeline, triggerFaultDemo, triggerNormalDemo } = useApp();
+  const { state } = useApp();
   const isFault = state.faultState === 'alert';
 
   const [timeStr, setTimeStr] = useState('');
@@ -96,40 +96,6 @@ export default function Header() {
 
         {/* Streaming status */}
         <StreamingStatus />
-
-        {/* Demo buttons */}
-        <button onClick={triggerNormalDemo} style={{
-          padding: '5px 12px', borderRadius: 4, border: '1px solid var(--normal-500)',
-          background: 'var(--normal-dim)', color: 'var(--normal-500)',
-          fontFamily: 'var(--font-mono)', fontSize: 10, cursor: 'pointer', letterSpacing: '0.05em',
-        }}>
-          DEMO: NORMAL
-        </button>
-        <button onClick={triggerFaultDemo} style={{
-          padding: '5px 12px', borderRadius: 4, border: '1px solid var(--alert-500)',
-          background: 'var(--alert-dim)', color: 'var(--alert-500)',
-          fontFamily: 'var(--font-mono)', fontSize: 10, cursor: 'pointer', letterSpacing: '0.05em',
-          animation: isFault ? 'none' : undefined,
-        }}>
-          DEMO: FAULT
-        </button>
-
-        {/* Scan button */}
-        <button
-          onClick={() => runPipeline()}
-          disabled={state.loading}
-          style={{
-            padding: '5px 14px', borderRadius: 4,
-            border: '1px solid var(--accent-500)',
-            background: 'var(--accent-dim)', color: 'var(--accent-400)',
-            fontFamily: 'var(--font-mono)', fontSize: 10, cursor: 'pointer',
-            display: 'flex', alignItems: 'center', gap: 6,
-            opacity: state.loading ? 0.5 : 1,
-          }}
-        >
-          <RefreshCw size={11} className={state.loading ? 'animate-spin' : ''} />
-          {state.loading ? 'SCANNING...' : 'RUN SCAN'}
-        </button>
       </div>
     </header>
   );

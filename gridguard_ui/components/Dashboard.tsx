@@ -150,7 +150,7 @@ export default function Dashboard() {
         <StatCard label="AVG VOLTAGE"    value={voltage} unit="V"   icon={Zap}         color="var(--accent-400)" />
         <StatCard label="AVG CURRENT"    value={current} unit="A"   icon={Activity}    color="var(--warn-500)"   />
         <StatCard label="POWER FACTOR"   value={pf}      unit=""    icon={Activity}    color="var(--normal-500)" />
-        <StatCard label="FEEDER LOAD"    value={load}    unit="MW"  icon={Thermometer} color="var(--alert-400)"  />
+        <StatCard label="FEEDER LOAD"    value={load}    unit="KW"  icon={Thermometer} color="var(--alert-400)"  />
       </div>
 
       {/* Fault stack moved to History screen */}
@@ -195,14 +195,14 @@ export default function Dashboard() {
         {/* Load chart */}
         <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 8, padding: 16 }}>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 12, letterSpacing: '0.06em' }}>
-            FEEDER LOAD TREND (MW)
+            FEEDER LOAD TREND (KW)
           </div>
           <ResponsiveContainer width="100%" height={140}>
             <LineChart data={readings}>
               <XAxis dataKey="time" tick={false} axisLine={false} tickLine={false} />
               <YAxis hide domain={['auto', 'auto']} />
               <Tooltip content={<CustomTooltip />} />
-              <Line type="monotone" dataKey="load" name="Load (MW)" stroke="var(--alert-400)" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="load" name="Load (KW)" stroke="var(--alert-400)" strokeWidth={2} dot={false} />
             </LineChart>
           </ResponsiveContainer>
         </div>

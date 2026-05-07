@@ -23,10 +23,10 @@ function createDemoResult(isFault: boolean): PipelineResult {
         : 'All parameters within normal operating range.',
     },
     classification: isFault ? {
-      fault_type_code: 3,
-      fault_type_label: 'Single-Line-to-Ground (SLG)',
+      fault_type_code: 0,
+      fault_type_label: 'LG',
       confidence_pct: 87,
-      all_probabilities: { SLG: 0.87, DLG: 0.08, LL: 0.05 },
+      all_probabilities: { LG: 87, LL: 5, LLG: 4, LLL: 2, LLLG: 1, 'No Fault': 1 },
     } : undefined,
     localization: isFault ? {
       substation_id: 5,
@@ -36,11 +36,12 @@ function createDemoResult(isFault: boolean): PipelineResult {
       distance_source: 'Voltage profile analysis',
     } : undefined,
     etr: isFault ? {
-      fault_type: 'SLG',
+      fault_type: 'LG',
       typical_hours: 2.5,
       min_hours: 1.5,
       max_hours: 4.0,
       estimated_recovery: '~2.5 hrs',
+      source: 'lookup_table',
     } : undefined,
     pipeline_stages_run: isFault
       ? ['fault_prediction', 'classification', 'localization', 'etr', 'latent_alert']
@@ -56,10 +57,11 @@ export const DEMO_NORMAL_PAYLOAD = {
     I_imbalance_diff: 0.001, hour: 10, dayofweek: 1, is_night: 0,
   },
   latent_alert: {
-    feeder_load: 8.2, hour: 10, month: 5, dayofweek: 1,
-    temperature: 32, humidity: 55, wind_speed: 8, precipitation: 0,
-    is_rain: 0, is_weekend: 0, is_peak_hour: 0, is_night: 0,
-    season: 'spring', temp_bucket: 'warm', baseline_mean: 8.5, baseline_std: 0.8,
+    feeder_load: 10.0722, hour: 1, month: 11, dayofweek: 2,
+    temperature: 24.7, humidity: 64.2, wind_speed: 11.1, precipitation: 0,
+    is_rain: 0, is_weekend: 0, is_peak_hour: 0,
+    season: 'autumn', temp_bucket: 'mild',
+    baseline_mean: 6.856, baseline_std: 3.939,
   },
 };
 
@@ -76,13 +78,14 @@ export const DEMO_FAULT_PAYLOAD = {
     I_lag_8: 0.15, curr_lag_8: 298,
   },
   latent_alert: {
-    feeder_load: 19.2, hour: 14, month: 7, dayofweek: 2,
-    temperature: 44, humidity: 78, wind_speed: 3, precipitation: 0,
-    is_rain: 0, is_weekend: 0, is_peak_hour: 1, is_night: 0,
-    season: 'summer', temp_bucket: 'extreme', baseline_mean: 10.5, baseline_std: 1.2,
+    feeder_load: 9.3979, hour: 2, month: 11, dayofweek: 2,
+    temperature: 21.7, humidity: 65.6, wind_speed: 9.1, precipitation: 0,
+    is_rain: 0, is_weekend: 0, is_peak_hour: 0,
+    season: 'autumn', temp_bucket: 'cool',
+    baseline_mean: 2.984, baseline_std: 2.003,
   },
-  fault_classification: { Ia: -151.29, Ib: -9.68, Ic: 85.80, Va: 0.40, Vb: -0.13, Vc: -0.27 },
-  localization: { V1: 33.188, V2: 33.993, V3: 33.500, I1: 120.5, I2: 118.2, I3: 121.0 },
+  fault_classification: { Ia: -151.2918, Ib: -9.6775, Ic: 85.8002, Va: 0.4007, Vb: -0.1329, Vc: -0.2678 },
+  localization: { V1: 33.188, V2: 33.993, V3: 33.500, I1: 11.3651, I2: 0.5738, I3: 0.5976 },
 };
 
 // ── Live chart data ────────────────────────────────────────────────────────────
@@ -339,7 +342,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const result = await api.pipeline(body as any);
       dispatch({ type: 'SET_RESULT', payload: result });
       dispatch({ type: 'SET_POLL_TIME', payload: new Date().toLocaleTimeString() });
-      // Refresh summary
+      // Refresh summary and history
       api.summary().then(s => dispatch({ type: 'SET_SUMMARY', payload: s })).catch(() => {});
       api.results(20).then(r => dispatch({ type: 'SET_HISTORY', payload: r.results })).catch(() => {});
     } catch (e: any) {
@@ -350,6 +353,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       dispatch({ type: 'SET_RESULT', payload: result });
       dispatch({ type: 'SET_POLL_TIME', payload: new Date().toLocaleTimeString() });
       dispatch({ type: 'SET_ERROR', payload: `API error: ${e.message}. Using demo data.` });
+      // When backend is offline: prepend demo result to history (keep last 20)
+      const demoHistory = [result, ...state.history].slice(0, 20);
+      dispatch({ type: 'SET_HISTORY', payload: demoHistory });
     } finally {
       dispatch({ type: 'SET_LOADING', payload: false });
     }

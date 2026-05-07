@@ -58,12 +58,12 @@ export default function FaultPrediction() {
   const radialData = [{ name: 'Risk', value: probPct, fill: riskColor }];
 
   const featureImportance = [
-    { feature: 'I_imbalance',       value: 31 },
-    { feature: 'current_magnitude', value: 22 },
-    { feature: 'zero_seq',          value: 18 },
-    { feature: 'V_imbalance',       value: 14 },
-    { feature: 'KW_Plus',           value: 9  },
-    { feature: 'hour',              value: 6  },
+    { feature: 'Average_PF',        value: 27.1 },
+    { feature: 'curr_mag_rmean_12', value: 3.2  },
+    { feature: 'dayofweek',         value: 3.1  },
+    { feature: 'curr_mag_rmean_8',  value: 3.0  },
+    { feature: 'hour',              value: 2.9  },
+    { feature: 'I_imbalance_rstd',  value: 2.8  },
   ];
 
   return (

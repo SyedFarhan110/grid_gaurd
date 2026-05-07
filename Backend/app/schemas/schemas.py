@@ -92,13 +92,14 @@ class LatentAlertInput(BaseModel):
     is_rain:       int   = Field(0,    ge=0, le=1)
     is_weekend:    int   = Field(0,    ge=0, le=1)
     is_peak_hour:  int   = Field(0,    ge=0, le=1)
-    is_night:      int   = Field(0,    ge=0, le=1)
     season:        str   = Field("summer", description="Season: winter/spring/summer/monsoon/autumn")
     temp_bucket:   str   = Field("warm",   description="Temp bucket: cold/mild/warm/hot/extreme")
 
     # Baseline (if known; otherwise estimated)
     baseline_mean: Optional[float] = Field(None, description="Historical baseline mean load")
     baseline_std:  Optional[float] = Field(None, description="Historical baseline std load")
+    # Load history for accurate lag/rolling features (computed server-side)
+    load_history:  Optional[List[float]] = Field(None, description="Last 60 feeder_load readings (oldest first). Enables lag/rolling stats.")
 
 
 class FullPipelineInput(BaseModel):
@@ -139,13 +140,15 @@ class LocalizationResult(BaseModel):
     substation_name:  str
     distance_km:      float
     zone:             str
+    distance_source:  Optional[str] = None
 
 class ETRResult(BaseModel):
-    fault_type:       str
-    typical_hours:    float
-    min_hours:        float
-    max_hours:        float
+    fault_type:         str
+    typical_hours:      float
+    min_hours:          float
+    max_hours:          float
     estimated_recovery: str  # Human-readable
+    source:             Optional[str] = None
 
 class LatentAlertResult(BaseModel):
     anomaly_detected:  bool

@@ -20,24 +20,34 @@ MODEL_PATHS = {
     # Core models (required)
     "fault_prediction":        os.path.join(MODELS_DIR, "fault_risk_model.pkl"),
     "fault_classification":    os.path.join(MODELS_DIR, "fault_classification_model.pkl"),
-    "substation_localization": os.path.join(MODELS_DIR, "substation_predict_classification.pkl"),
+    "substation_localization": os.path.join(MODELS_DIR, "substation_classification_model.pkl"),
+    "distance_localization":   os.path.join(MODELS_DIR, "distance_regression_model.pkl"),
     "latent_alert":            os.path.join(MODELS_DIR, "lgb_model_v3.pkl"),
-    # Optional models (graceful fallback if file not present)
-    "distance_localization":   os.path.join(MODELS_DIR, "distance_predict_regression.pkl"),
     "etr_prediction":          os.path.join(MODELS_DIR, "etr_model.pkl"),
 }
 
 # Models that won't crash startup if their .pkl file is not uploaded yet
 OPTIONAL_MODELS = {"distance_localization", "etr_prediction"}
 
+# encoders/scalers used by the models (must be kept in sync with how models were trained)
+ENCODER_PATHS = {
+    "fault_classification_le": os.path.join(MODELS_DIR, "substation_label_encoder_fault.pkl"),
+    "substation_scaler":       os.path.join(MODELS_DIR, "substation_scaler_classification.pkl"),
+    "substation_le":           os.path.join(MODELS_DIR, "substation_label_encoder_substation.pkl"),
+    "fault_zone_le":           os.path.join(MODELS_DIR, "substation_label_encoder_fault.pkl"),
+    "distance_scaler":         os.path.join(MODELS_DIR, "distance_scaler_regression.pkl"),
+    "etr_encoders":            os.path.join(MODELS_DIR, "etr_encoders.pkl"),
+    "etr_scaler":              os.path.join(MODELS_DIR, "str_scaler.pkl"),
+}
+
 # Fault type labels for classification (6 classes: 0-5)
 FAULT_TYPE_LABELS = {
-    0: "No Fault",
-    1: "Single Line-to-Ground (SLG)",
-    2: "Line-to-Line (LL)",
-    3: "Double Line-to-Ground (DLG)",
-    4: "Three-Phase (3PH)",
-    5: "Three-Phase-to-Ground (3PG)",
+    0: "LG",
+    1: "LL",
+    2: "LLG",
+    3: "LLL",
+    4: "LLLG",
+    5: "No Fault",
 }
 
 # Substation labels — alphabetically sorted (matches sklearn LabelEncoder default)
@@ -105,14 +115,14 @@ class FeatureEngineer(BaseEstimator, TransformerMixin):
         return X
 
 
-# ── ETR lookup table (rule-based since etr_model.pkl was not uploaded) ─────────
+# ── ETR lookup table (rule-based with new short-code labels) ─────────
 ETR_LOOKUP = {
-    "No Fault":                        {"min_hours": 0,   "max_hours": 0,   "typical_hours": 0},
-    "Single Line-to-Ground (SLG)":     {"min_hours": 0.5, "max_hours": 4,   "typical_hours": 1.5},
-    "Line-to-Line (LL)":               {"min_hours": 1,   "max_hours": 6,   "typical_hours": 2.5},
-    "Double Line-to-Ground (DLG)":     {"min_hours": 2,   "max_hours": 8,   "typical_hours": 4},
-    "Three-Phase (3PH)":               {"min_hours": 3,   "max_hours": 12,  "typical_hours": 6},
-    "Three-Phase-to-Ground (3PG)":     {"min_hours": 4,   "max_hours": 24,  "typical_hours": 8},
+    "No Fault":  {"min_hours": 0,   "max_hours": 0,   "typical_hours": 0},
+    "LG":        {"min_hours": 0.5, "max_hours": 4,   "typical_hours": 1.5},  # Line-to-Ground
+    "LL":        {"min_hours": 1,   "max_hours": 6,   "typical_hours": 2.5},  # Line-to-Line
+    "LLG":       {"min_hours": 2,   "max_hours": 8,   "typical_hours": 4},    # Double Line-to-Ground
+    "LLL":       {"min_hours": 3,   "max_hours": 12,  "typical_hours": 6},    # Three-Phase
+    "LLLG":      {"min_hours": 4,   "max_hours": 24,  "typical_hours": 8},    # Three-Phase-to-Ground
 }
 
 
@@ -177,6 +187,16 @@ class ModelRegistry:
                     self._status[name] = f"error: {str(e)}"
                     print(f"  [ERROR] {name}: {e}")
 
+        # Load encoders and scalers
+        for name, path in ENCODER_PATHS.items():
+            try:
+                self._models[name] = joblib.load(path)
+                self._status[name] = "loaded"
+                print(f"  ✅ {name}: loaded ({type(self._models[name]).__name__})")
+            except Exception as e:
+                self._status[name] = f"error: {str(e)}"
+                print(f"  ❌ {name}: {e}")
+
     def reload(self, model_name: Optional[str] = None):
         """Reload one or all models."""
         if model_name:
@@ -218,6 +238,16 @@ class ModelRegistry:
                     continue
                 self._status[name] = f"error: {str(e)}"
                 raise RuntimeError(f"Failed to load {name}: {e}")
+
+        # Load encoders and scalers
+        for name, path in ENCODER_PATHS.items():
+            try:
+                self._models[name] = joblib.load(path)
+                self._status[name] = "loaded"
+                print(f"  ✅ {name}: loaded ({type(self._models[name]).__name__})")
+            except Exception as e:
+                self._status[name] = f"error: {str(e)}"
+                print(f"  ❌ {name}: {e}")
 
     def get(self, name: str) -> Any:
         if name not in self._models:
