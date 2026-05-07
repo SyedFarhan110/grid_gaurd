@@ -35,7 +35,7 @@ function getFaultLocation(result: PipelineResult) {
 
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '4px 0' }}>
+    <div className="faultstack-detail-row" style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '4px 0' }}>
       <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-dim)' }}>{label}</span>
       <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-secondary)', textAlign: 'right' }}>{value}</span>
     </div>
@@ -68,8 +68,85 @@ export default function FaultStack({ moduleId, title, accentColor = 'var(--alert
   }, [faults, expandedId]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+    <div className="faultstack-root" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <style>{`
+        .faultstack-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+        }
+
+        .faultstack-item {
+          margin-top: 10px;
+        }
+
+        .faultstack-button {
+          width: 100%;
+          text-align: left;
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 12px;
+        }
+
+        .faultstack-meta {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          margin-bottom: 4px;
+          flex-wrap: wrap;
+        }
+
+        .faultstack-meta-row {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 16px;
+        }
+
+        .faultstack-stages {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+        }
+
+        @media (max-width: 640px) {
+          .faultstack-header {
+            align-items: flex-start;
+            flex-direction: column;
+          }
+
+          .faultstack-button {
+            flex-direction: column;
+            align-items: stretch;
+          }
+
+          .faultstack-button > div:last-child {
+            align-self: flex-start;
+          }
+
+          .faultstack-meta-row {
+            grid-template-columns: 1fr;
+            gap: 12px;
+          }
+
+          .faultstack-detail-row {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 2px;
+          }
+
+          .faultstack-detail-row span:last-child {
+            text-align: left;
+          }
+
+          .faultstack-stages {
+            gap: 6px;
+          }
+        }
+      `}</style>
+
+      <div className="faultstack-header">
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-secondary)', letterSpacing: '0.06em' }}>
           {title}
         </div>
@@ -103,28 +180,23 @@ export default function FaultStack({ moduleId, title, accentColor = 'var(--alert
                   : 'var(--normal-500)';
 
             return (
-              <div key={fault.id} style={{ marginTop: index === 0 ? 0 : 10 }}>
+              <div key={fault.id} className="faultstack-item" style={{ marginTop: index === 0 ? 0 : 10 }}>
                 <button
                   type="button"
                   onClick={() => setExpandedId(isOpen ? null : fault.id)}
                   aria-expanded={isOpen}
+                  className="faultstack-button"
                   style={{
-                    width: '100%',
-                    textAlign: 'left',
                     background: isOpen ? 'var(--bg-card)' : 'var(--bg-elevated)',
                     border: `1px solid ${isOpen ? accentColor : 'var(--border-subtle)'}`,
                     borderLeft: `3px solid ${riskColor}`,
                     borderRadius: 8,
                     padding: '12px 14px',
                     cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                    justifyContent: 'space-between',
-                    gap: 12,
                   }}
                 >
                   <div style={{ minWidth: 0, flex: 1 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+                    <div className="faultstack-meta">
                       <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: accentColor, letterSpacing: '0.06em' }}>
                         {getFaultLabel(fault)}
                       </span>
@@ -152,7 +224,7 @@ export default function FaultStack({ moduleId, title, accentColor = 'var(--alert
                     borderRadius: 8,
                     padding: 14,
                   }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 16 }}>
+                    <div className="faultstack-meta-row">
                       <div>
                         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-dim)', marginBottom: 8 }}>Prediction</div>
                         <DetailRow label="Risk level" value={fault.pipeline.risk_level} />
@@ -193,7 +265,7 @@ export default function FaultStack({ moduleId, title, accentColor = 'var(--alert
 
                     <div style={{ marginTop: 14 }}>
                       <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-dim)', marginBottom: 8 }}>Pipeline Stages</div>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                      <div className="faultstack-stages">
                         {fault.pipeline_stages_run.map(stage => (
                           <span
                             key={stage}

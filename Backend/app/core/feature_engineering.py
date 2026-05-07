@@ -122,80 +122,115 @@ SEASON_ENC     = {"winter": 0, "spring": 1, "summer": 2, "monsoon": 3, "autumn":
 TEMP_BUCKET_ENC = {"cold": 0, "cool": 0, "mild": 1, "warm": 2, "hot": 3, "extreme": 4}
 
 
-def prepare_latent_alert_features(data: Dict[str, Any]) -> pd.DataFrame:
-    df   = pd.DataFrame([data])
-    fl   = float(data.get("feeder_load", 0))
+def prepare_latent_alert_features(data: dict) -> pd.DataFrame:
+    df = pd.DataFrame([data])
+
+    def _clean_history(values):
+        cleaned = []
+        for value in values or []:
+            try:
+                numeric = float(value)
+            except Exception:
+                continue
+            if np.isfinite(numeric):
+                cleaned.append(numeric)
+        return cleaned
+
+    def _lag_value(history, lag, fallback):
+        return history[-lag] if len(history) >= lag else fallback
+
+    def _window_stats(history, window, fallback):
+        window_values = history[-window:] if len(history) >= window else history
+        if not window_values:
+            return fallback, 0.0, 0.0
+        return (
+            float(np.mean(window_values)),
+            float(np.std(window_values)) if len(window_values) > 1 else 0.0,
+            float(np.max(window_values) - np.min(window_values)),
+        )
+
+    fl = float(data.get("feeder_load", 0.0))
+    bm = float(data.get("baseline_mean") if data.get("baseline_mean") is not None else fl)
+    bs = max(float(data.get("baseline_std") if data.get("baseline_std") is not None else 1.0), 0.01)
+    temp = float(data.get("temperature", 25.0))
+    hum = float(data.get("humidity", 60.0))
+    wind = float(data.get("wind_speed", 0.0))
+    precipitation = float(data.get("precipitation", 0.0))
     hour = int(data.get("hour", 0))
     month = int(data.get("month", 1))
-    dow   = int(data.get("dayofweek", 0))
-    temp  = float(data.get("temperature", 30))
-    hum   = float(data.get("humidity", 60))
+    dayofweek = int(data.get("dayofweek", 0))
+    history = _clean_history(data.get("load_history"))
 
-    # Cyclical encodings — same as before ✅
-    df["hour_sin"]  = np.sin(2 * np.pi * hour  / 24)
-    df["hour_cos"]  = np.cos(2 * np.pi * hour  / 24)
-    df["month_sin"] = np.sin(2 * np.pi * month / 12)
-    df["month_cos"] = np.cos(2 * np.pi * month / 12)
-    df["dow_sin"]   = np.sin(2 * np.pi * dow   / 7)
-    df["dow_cos"]   = np.cos(2 * np.pi * dow   / 7)
+    hour_angle = 2 * np.pi * (hour % 24) / 24.0
+    month_angle = 2 * np.pi * (month % 12) / 12.0
+    dow_angle = 2 * np.pi * (dayofweek % 7) / 7.0
 
-    df["season_enc"]      = SEASON_ENC.get(str(data.get("season", "summer")).lower(), 2)
-    df["temp_bucket_enc"] = TEMP_BUCKET_ENC.get(str(data.get("temp_bucket", "warm")).lower(), 2)
+    load_lag_1 = _lag_value(history, 1, fl)
+    load_lag_3 = _lag_value(history, 3, fl)
+    load_lag_5 = _lag_value(history, 5, fl)
+    load_lag_10 = _lag_value(history, 10, fl)
+    load_lag_15 = _lag_value(history, 15, fl)
+    load_lag_30 = _lag_value(history, 30, fl)
+    load_lag_60 = _lag_value(history, 60, fl)
 
-    # FIX: compute is_night server-side — never trust client value
-    df["is_night"] = 1 if (hour >= 22 or hour < 6) else 0
+    roll_mean_5, roll_std_5, roll_range_5 = _window_stats(history, 5, fl)
+    roll_mean_10, roll_std_10, roll_range_10 = _window_stats(history, 10, fl)
+    roll_mean_15, roll_std_15, _ = _window_stats(history, 15, fl)
+    roll_mean_30, roll_std_30, _ = _window_stats(history, 30, fl)
+    roll_mean_60, roll_std_60, _ = _window_stats(history, 60, fl)
 
-    baseline_mean = float(data.get("baseline_mean") or fl * 0.9)
-    baseline_std  = float(data.get("baseline_std")  or fl * 0.1)
-
-    # FIX: compute time-series features from load_history if provided
-    load_history = data.get("load_history")
-    if load_history and len(load_history) >= 2:
-        hist = pd.Series(load_history, dtype=float)
-        lag_map   = {1:1, 3:3, 5:5, 10:10, 15:15, 30:30, 60:60}
-        roll_wins = [5, 10, 15, 30, 60]
-        for lag, shift in lag_map.items():
-            df[f"load_lag_{lag}"] = float(hist.iloc[-shift]) if len(hist) > shift else fl
-        for win in roll_wins:
-            sl = hist.iloc[-win:]
-            df[f"roll_mean_{win}"] = float(sl.mean())
-            df[f"roll_std_{win}"]  = float(sl.std()) if len(sl) > 1 else 0.0
-        for win in [5, 10]:
-            sl = hist.iloc[-win:]
-            df[f"roll_range_{win}"] = float(sl.max() - sl.min()) if len(sl) > 1 else 0.0
-        for d in [1, 5, 15]:
-            df[f"load_diff_{d}"]  = fl - float(hist.iloc[-d]) if len(hist) > d else 0.0
-        df["load_abs_diff_1"] = abs(float(df["load_diff_1"].iloc[0]))
-    else:
-        # fallback: all lags = current fl, all diffs/stds = 0
-        for lag in [1,3,5,10,15,30,60]:
-            df[f"load_lag_{lag}"] = fl
-        for win in [5,10,15,30,60]:
-            df[f"roll_mean_{win}"] = fl
-            df[f"roll_std_{win}"]  = 0.0
-        for win in [5,10]:
-            df[f"roll_range_{win}"] = 0.0
-        for d in [1,5,15]:
-            df[f"load_diff_{d}"] = 0.0
-        df["load_abs_diff_1"] = 0.0
-
-    defaults = {
-        "load_above_baseline":   max(0.0, fl - baseline_mean),
-        "load_below_baseline":   max(0.0, baseline_mean - fl),
-        "load_vs_baseline_pct":  ((fl - baseline_mean) / (baseline_mean + 1e-6)) * 100,
-        "baseline_mean":  baseline_mean,
-        "baseline_std":   baseline_std,
-        "apparent_temp":         temp + 0.33 * hum / 100 * 6.1078 - 4,
-        "heat_load_ratio":       fl  / (temp + 1e-6),
-        "humidity_load_ratio":   fl  / (hum  + 1e-6),
-        "temp_x_load":           fl  * temp,
-        "temp_x_humidity":       temp * hum,
-        "is_extreme_heat":       1 if temp > 42 else 0,
-        "heat_peak":             1 if (temp > 38 and hour in range(12, 18)) else 0,
-    }
-    for col, val in defaults.items():
-        if col not in df.columns:
-            df[col] = val
+    df["feeder_load"] = fl
+    df["load_above_baseline"] = max(fl - bm, 0.0)
+    df["load_below_baseline"] = max(bm - fl, 0.0)
+    df["load_vs_baseline_pct"] = ((fl - bm) / max(bm, 0.01)) * 100.0
+    df["baseline_mean"] = bm
+    df["baseline_std"] = bs
+    df["load_diff_1"] = fl - load_lag_1
+    df["load_diff_5"] = fl - load_lag_5
+    df["load_diff_15"] = fl - load_lag_15
+    df["load_abs_diff_1"] = abs(fl - load_lag_1)
+    df["load_lag_1"] = load_lag_1
+    df["load_lag_3"] = load_lag_3
+    df["load_lag_5"] = load_lag_5
+    df["load_lag_10"] = load_lag_10
+    df["load_lag_15"] = load_lag_15
+    df["load_lag_30"] = load_lag_30
+    df["load_lag_60"] = load_lag_60
+    df["roll_mean_5"] = roll_mean_5
+    df["roll_mean_10"] = roll_mean_10
+    df["roll_mean_15"] = roll_mean_15
+    df["roll_mean_30"] = roll_mean_30
+    df["roll_mean_60"] = roll_mean_60
+    df["roll_std_5"] = roll_std_5
+    df["roll_std_10"] = roll_std_10
+    df["roll_std_15"] = roll_std_15
+    df["roll_std_30"] = roll_std_30
+    df["roll_std_60"] = roll_std_60
+    df["roll_range_5"] = roll_range_5
+    df["roll_range_10"] = roll_range_10
+    df["temperature"] = temp
+    df["humidity"] = hum
+    df["wind_speed"] = wind
+    df["precipitation"] = precipitation
+    df["is_rain"] = int(float(data.get("is_rain", 0)) > 0)
+    df["apparent_temp"] = temp + 0.33 * (hum / 100 * 6.105 * np.exp(17.27 * temp / (237.7 + temp))) - 4.0
+    df["heat_load_ratio"] = (fl * temp) / max(bm * 32, 1.0)
+    df["humidity_load_ratio"] = (fl * hum) / max(bm * 66, 1.0)
+    df["temp_x_load"] = temp * fl
+    df["temp_x_humidity"] = temp * hum
+    df["is_extreme_heat"] = int(temp >= 38)
+    df["heat_peak"] = df["is_extreme_heat"].iloc[0] * int(data.get("is_peak_hour", 0))
+    df["hour_sin"] = np.sin(hour_angle)
+    df["hour_cos"] = np.cos(hour_angle)
+    df["month_sin"] = np.sin(month_angle)
+    df["month_cos"] = np.cos(month_angle)
+    df["dow_sin"] = np.sin(dow_angle)
+    df["dow_cos"] = np.cos(dow_angle)
+    df["is_weekend"] = int(data.get("is_weekend", 0))
+    df["is_peak_hour"] = int(data.get("is_peak_hour", 0))
+    df["is_night"] = int(data.get("is_night", hour >= 22 or hour < 6))
+    df["season_enc"] = SEASON_ENC.get(str(data.get("season", "")).lower(), 0)
+    df["temp_bucket_enc"] = TEMP_BUCKET_ENC.get(str(data.get("temp_bucket", "")).lower(), 1)
 
     for col in LATENT_ALERT_FEATURES:
         if col not in df.columns:

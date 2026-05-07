@@ -1,59 +1,63 @@
 'use client';
+import { useState } from 'react';
 import { useApp } from '@/lib/store';
 import {
   LayoutDashboard, Zap, Tag, MapPin, Clock,
-  CloudRain, AlertTriangle, History, Settings, Radio,
+  CloudRain, AlertTriangle, History, Settings, Radio, Menu, X,
 } from 'lucide-react';
 
 const MODULES = [
-  { id: 'dashboard',       label: 'Dashboard',         icon: LayoutDashboard, alwaysOn: true  },
-  { id: 'fault-prediction',label: 'Fault Prediction',  icon: Zap,             alwaysOn: false },
-  { id: 'classification',  label: 'Classification',    icon: Tag,             alwaysOn: false },
-  { id: 'localization',    label: 'Localization',      icon: MapPin,          alwaysOn: false },
-  { id: 'etr',             label: 'ETR / Recovery',    icon: Clock,           alwaysOn: false },
-  { id: 'weather',         label: 'Weather Analysis',  icon: CloudRain,       alwaysOn: true  },
-  { id: 'anomaly',         label: 'Anomaly Insights',  icon: AlertTriangle,   alwaysOn: true  },
-  { id: 'history',         label: 'History',           icon: History,         alwaysOn: true  },
+  { id: 'dashboard',        label: 'Dashboard',        icon: LayoutDashboard, alwaysOn: true  },
+  { id: 'fault-prediction', label: 'Fault Prediction', icon: Zap,             alwaysOn: false },
+  { id: 'classification',   label: 'Classification',   icon: Tag,             alwaysOn: false },
+  { id: 'localization',     label: 'Localization',     icon: MapPin,          alwaysOn: false },
+  { id: 'etr',              label: 'ETR / Recovery',   icon: Clock,           alwaysOn: false },
+  { id: 'weather',          label: 'Weather Analysis', icon: CloudRain,       alwaysOn: true  },
+  { id: 'anomaly',          label: 'Anomaly Insights', icon: AlertTriangle,   alwaysOn: true  },
+  { id: 'history',          label: 'History',          icon: History,         alwaysOn: true  },
 ];
 
 export default function Sidebar() {
   const { state, dispatch } = useApp();
   const isFault = state.faultState === 'alert';
+  const [mobileOpen, setMobileOpen] = useState(false);
 
-  return (
-    <aside
-      style={{
-        width: 220,
-        minWidth: 220,
-        background: 'var(--bg-deep)',
-        borderRight: '1px solid var(--border-subtle)',
-        display: 'flex',
-        flexDirection: 'column',
-        height: '100vh',
-        position: 'sticky',
-        top: 0,
-        zIndex: 50,
-      }}
-    >
+  const navContent = (
+    <>
       {/* Logo */}
       <div style={{ padding: '24px 20px 20px', borderBottom: '1px solid var(--border-subtle)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{
-            width: 32, height: 32,
-            background: 'linear-gradient(135deg, var(--accent-500), var(--normal-500))',
-            borderRadius: 6,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}>
-            <Radio size={16} color="#fff" />
-          </div>
-          <div>
-            <div style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
-              GridGuard
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{
+              width: 32, height: 32,
+              background: 'linear-gradient(135deg, var(--accent-500), var(--normal-500))',
+              borderRadius: 6,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              flexShrink: 0,
+            }}>
+              <Radio size={16} color="#fff" />
             </div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-dim)', letterSpacing: '0.1em' }}>
-              AI • K-ELECTRIC
+            <div>
+              <div style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>
+                GridGuard
+              </div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-dim)', letterSpacing: '0.1em' }}>
+                AI • K-ELECTRIC
+              </div>
             </div>
           </div>
+
+          {/* Close button — mobile only */}
+          <button
+            onClick={() => setMobileOpen(false)}
+            className="sidebar-close-btn"
+            style={{
+              display: 'none', // shown via media query class
+              background: 'none', border: 'none', cursor: 'pointer', padding: 4,
+            }}
+          >
+            <X size={18} color="var(--text-secondary)" />
+          </button>
         </div>
 
         {/* Live status pill */}
@@ -86,15 +90,20 @@ export default function Sidebar() {
       {/* Nav items */}
       <nav style={{ flex: 1, padding: '12px 0', overflowY: 'auto' }}>
         {MODULES.map(mod => {
-          const isActive   = state.activeModule === mod.id;
-          const isEnabled  = mod.alwaysOn || isFault || state.faultModulesUnlocked;
-          const Icon       = mod.icon;
+          const isActive  = state.activeModule === mod.id;
+          const isEnabled = mod.alwaysOn || isFault || state.faultModulesUnlocked;
+          const Icon      = mod.icon;
 
           return (
             <button
               key={mod.id}
               disabled={!isEnabled}
-              onClick={() => isEnabled && dispatch({ type: 'SET_MODULE', payload: mod.id })}
+              onClick={() => {
+                if (isEnabled) {
+                  dispatch({ type: 'SET_MODULE', payload: mod.id });
+                  setMobileOpen(false); // close drawer on mobile after selection
+                }
+              }}
               style={{
                 width: '100%',
                 display: 'flex',
@@ -148,6 +157,87 @@ export default function Sidebar() {
           v1.0.0 • FYDP 2025
         </span>
       </div>
-    </aside>
+    </>
+  );
+
+  return (
+    <>
+      {/* ── Hamburger trigger (mobile only) ── */}
+      <button
+        onClick={() => setMobileOpen(true)}
+        aria-label="Open menu"
+        style={{
+          display: 'none',            // shown via CSS below
+          position: 'fixed',
+          top: 12, left: 12,
+          zIndex: 200,
+          background: 'var(--bg-deep)',
+          border: '1px solid var(--border-subtle)',
+          borderRadius: 6,
+          padding: '6px 8px',
+          cursor: 'pointer',
+          alignItems: 'center', justifyContent: 'center',
+        }}
+        className="sidebar-hamburger"
+      >
+        <Menu size={18} color="var(--text-secondary)" />
+      </button>
+
+      {/* ── Mobile backdrop overlay ── */}
+      {mobileOpen && (
+        <div
+          onClick={() => setMobileOpen(false)}
+          className="sidebar-backdrop"
+          style={{
+            position: 'fixed', inset: 0,
+            background: 'rgba(0,0,0,0.55)',
+            zIndex: 149,
+          }}
+        />
+      )}
+
+      {/* ── Sidebar panel ── */}
+      <aside
+        className={`sidebar-panel${mobileOpen ? ' sidebar-open' : ''}`}
+        style={{
+          width: 220,
+          minWidth: 220,
+          background: 'var(--bg-deep)',
+          borderRight: '1px solid var(--border-subtle)',
+          display: 'flex',
+          flexDirection: 'column',
+          height: '100vh',
+          position: 'sticky',
+          top: 0,
+          zIndex: 150,
+        }}
+      >
+        {navContent}
+      </aside>
+
+      {/* ── Scoped responsive styles ── */}
+      <style>{`
+        @media (max-width: 768px) {
+          .sidebar-hamburger {
+            display: flex !important;
+          }
+          .sidebar-close-btn {
+            display: flex !important;
+          }
+          .sidebar-panel {
+            position: fixed !important;
+            top: 0;
+            left: 0;
+            height: 100vh !important;
+            transform: translateX(-100%);
+            transition: transform 0.25s ease;
+            box-shadow: 4px 0 24px rgba(0,0,0,0.4);
+          }
+          .sidebar-panel.sidebar-open {
+            transform: translateX(0);
+          }
+        }
+      `}</style>
+    </>
   );
 }

@@ -5,11 +5,11 @@ import { Tag, CheckCircle } from 'lucide-react';
 
 const FAULT_COLORS: Record<string, string> = {
   'No Fault': 'var(--normal-500)',
-  'LG':       'var(--accent-500)',   // Line-to-Ground
-  'LL':       'var(--warn-500)',     // Line-to-Line
-  'LLG':      '#FF8C42',             // Double Line-to-Ground
-  'LLL':      'var(--alert-500)',    // Three-Phase
-  'LLLG':     '#CC2244',             // Three-Phase-to-Ground
+  'LG':       'var(--accent-500)',
+  'LL':       'var(--warn-500)',
+  'LLG':      '#FF8C42',
+  'LLL':      'var(--alert-500)',
+  'LLLG':     '#CC2244',
 };
 
 const FAULT_DESCRIPTIONS: Record<string, string> = {
@@ -51,10 +51,8 @@ export default function Classification() {
       }))
     : [];
 
-  // Radar chart data derived from probabilities
   const radarData = probData.map(d => ({ subject: d.shortName, value: d.value }));
 
-  // Phase map for fault type to involved phases
   const PHASE_MAP: Record<string, { A: boolean; B: boolean; C: boolean; G: boolean }> = {
     'LG':       { A: true,  B: false, C: false, G: true  },
     'LL':       { A: false, B: true,  C: true,  G: false },
@@ -82,121 +80,214 @@ export default function Classification() {
             </p>
           </div>
         </div>
-        {/* Fault stack moved to History screen */}
       </div>
     );
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <>
+      <style>{`
+        /* Result banner */
+        .cls-banner {
+          display: flex;
+          align-items: center;
+          gap: 20px;
+          border-radius: 10px;
+          padding: 20px 24px;
+          flex-wrap: wrap;
+        }
+        .cls-banner-icon {
+          width: 56px;
+          height: 56px;
+          border-radius: 8px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+        }
+        .cls-banner-confidence {
+          text-align: right;
+          flex-shrink: 0;
+        }
 
-      {/* Header */}
-      <div>
-        <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
-          Fault Classification
-        </h2>
-        <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-dim)', margin: '4px 0 0', letterSpacing: '0.06em' }}>
-          Decision Tree Pipeline · Input: Ia, Ib, Ic, Va, Vb, Vc
-        </p>
-      </div>
+        /* Charts grid: 2 cols on desktop, 1 col on mobile */
+        .cls-charts-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 16px;
+        }
 
-      {/* Result banner */}
-      <div style={{
-        background: `${faultColor}12`,
-        border: `1px solid ${faultColor}`,
-        borderRadius: 10,
-        padding: '20px 24px',
-        display: 'flex', alignItems: 'center', gap: 20,
-      }}>
-        <div style={{
-          width: 56, height: 56, borderRadius: 8,
-          background: `${faultColor}20`,
-          border: `2px solid ${faultColor}`,
-          display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-        }}>
-          <Tag size={24} color={faultColor} />
+        /* Phase grid: 4 cols on desktop */
+        .cls-phase-grid {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 12px;
+        }
+
+        @media (max-width: 640px) {
+          .cls-banner {
+            padding: 14px 16px;
+            gap: 14px;
+          }
+          .cls-banner-icon {
+            width: 44px;
+            height: 44px;
+          }
+          .cls-banner-confidence {
+            text-align: left;
+            width: 100%;
+          }
+          .cls-banner-confidence .cls-conf-value {
+            font-size: 26px !important;
+          }
+          .cls-charts-grid {
+            grid-template-columns: 1fr;
+          }
+          .cls-phase-grid {
+            grid-template-columns: repeat(2, 1fr);
+          }
+        }
+
+        @media (min-width: 641px) and (max-width: 900px) {
+          .cls-phase-grid {
+            grid-template-columns: repeat(2, 1fr);
+          }
+        }
+      `}</style>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+        {/* Header */}
+        <div>
+          <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
+            Fault Classification
+          </h2>
+          <p style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-dim)', margin: '4px 0 0', letterSpacing: '0.06em' }}>
+            Decision Tree Pipeline · Input: Ia, Ib, Ic, Va, Vb, Vc
+          </p>
         </div>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 800, color: faultColor, letterSpacing: '-0.02em' }}>
-            {faultLabel}
+
+        {/* Result banner */}
+        <div
+          className="cls-banner"
+          style={{
+            background: `${faultColor}12`,
+            border: `1px solid ${faultColor}`,
+          }}
+        >
+          <div
+            className="cls-banner-icon"
+            style={{
+              background: `${faultColor}20`,
+              border: `2px solid ${faultColor}`,
+            }}
+          >
+            <Tag size={24} color={faultColor} />
           </div>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-secondary)', marginTop: 5, lineHeight: 1.6 }}>
-            {FAULT_DESCRIPTIONS[faultLabel]}
-          </div>
-        </div>
-        <div style={{ textAlign: 'right', flexShrink: 0 }}>
-          <div style={{ fontFamily: 'var(--font-display)', fontSize: 32, fontWeight: 800, color: faultColor }}>
-            {confidence.toFixed(1)}%
-          </div>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-dim)', letterSpacing: '0.08em' }}>CONFIDENCE</div>
-        </div>
-      </div>
 
-      {/* Fault stack moved to History screen */}
-
-      {/* Charts + phases */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-
-        {/* Bar chart - all probabilities */}
-        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 8, padding: 16 }}>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 12, letterSpacing: '0.06em' }}>
-            ALL CLASS PROBABILITIES
-          </div>
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={probData} layout="vertical">
-              <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 9, fill: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} tickFormatter={v => `${v}%`} />
-              <YAxis type="category" dataKey="shortName" tick={{ fontSize: 9, fill: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }} axisLine={false} tickLine={false} width={50} />
-              <Tooltip content={<CustomTooltip />} />
-              <Bar dataKey="value" radius={[0, 3, 3, 0]}>
-                {probData.map((entry, i) => (
-                  <Cell key={i} fill={entry.color} opacity={entry.name.includes(faultLabel.split(' ')[0]) ? 1 : 0.35} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Radar chart */}
-        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 8, padding: 16 }}>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 12, letterSpacing: '0.06em' }}>
-            PROBABILITY RADAR
-          </div>
-          <ResponsiveContainer width="100%" height={200}>
-            <RadarChart data={radarData}>
-              <PolarGrid stroke="var(--border-subtle)" />
-              <PolarAngleAxis dataKey="subject" tick={{ fontSize: 9, fill: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }} />
-              <Radar dataKey="value" stroke={faultColor} fill={faultColor} fillOpacity={0.2} strokeWidth={1.5} />
-            </RadarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      {/* Phase status indicators */}
-      <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 8, padding: 16 }}>
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 14, letterSpacing: '0.06em' }}>
-          PHASE INVOLVEMENT ANALYSIS
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
-          {phaseData.map(p => (
-            <div key={p.phase} style={{
-              background: p.abnormal ? 'var(--alert-dim)' : 'var(--bg-elevated)',
-              border: `1px solid ${p.abnormal ? 'var(--alert-500)' : 'var(--border-subtle)'}`,
-              borderRadius: 6, padding: '12px 14px',
-            }}>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-dim)', marginBottom: 6 }}>{p.phase}</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                {p.abnormal
-                  ? <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--alert-500)', display: 'block', boxShadow: '0 0 6px var(--alert-500)' }} className="blink" />
-                  : <CheckCircle size={12} color="var(--normal-500)" />
-                }
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, color: p.abnormal ? 'var(--alert-500)' : 'var(--normal-500)' }}>
-                  {p.value}
-                </span>
-              </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 800, color: faultColor, letterSpacing: '-0.02em' }}>
+              {faultLabel}
             </div>
-          ))}
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-secondary)', marginTop: 5, lineHeight: 1.6, wordBreak: 'break-word' }}>
+              {FAULT_DESCRIPTIONS[faultLabel]}
+            </div>
+          </div>
+
+          <div className="cls-banner-confidence">
+            <div
+              className="cls-conf-value"
+              style={{ fontFamily: 'var(--font-display)', fontSize: 32, fontWeight: 800, color: faultColor }}
+            >
+              {confidence.toFixed(1)}%
+            </div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-dim)', letterSpacing: '0.08em' }}>CONFIDENCE</div>
+          </div>
         </div>
+
+        {/* Charts grid */}
+        <div className="cls-charts-grid">
+
+          {/* Bar chart */}
+          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 8, padding: 16 }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 12, letterSpacing: '0.06em' }}>
+              ALL CLASS PROBABILITIES
+            </div>
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={probData} layout="vertical">
+                <XAxis
+                  type="number"
+                  domain={[0, 100]}
+                  tick={{ fontSize: 9, fill: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}
+                  axisLine={false}
+                  tickLine={false}
+                  tickFormatter={v => `${v}%`}
+                />
+                <YAxis
+                  type="category"
+                  dataKey="shortName"
+                  tick={{ fontSize: 9, fill: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}
+                  axisLine={false}
+                  tickLine={false}
+                  width={50}
+                />
+                <Tooltip content={<CustomTooltip />} />
+                <Bar dataKey="value" radius={[0, 3, 3, 0]}>
+                  {probData.map((entry, i) => (
+                    <Cell key={i} fill={entry.color} opacity={entry.name.includes(faultLabel.split(' ')[0]) ? 1 : 0.35} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Radar chart */}
+          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 8, padding: 16 }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 12, letterSpacing: '0.06em' }}>
+              PROBABILITY RADAR
+            </div>
+            <ResponsiveContainer width="100%" height={200}>
+              <RadarChart data={radarData}>
+                <PolarGrid stroke="var(--border-subtle)" />
+                <PolarAngleAxis dataKey="subject" tick={{ fontSize: 9, fill: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }} />
+                <Radar dataKey="value" stroke={faultColor} fill={faultColor} fillOpacity={0.2} strokeWidth={1.5} />
+              </RadarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Phase status indicators */}
+        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 8, padding: 16 }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 14, letterSpacing: '0.06em' }}>
+            PHASE INVOLVEMENT ANALYSIS
+          </div>
+          <div className="cls-phase-grid">
+            {phaseData.map(p => (
+              <div
+                key={p.phase}
+                style={{
+                  background: p.abnormal ? 'var(--alert-dim)' : 'var(--bg-elevated)',
+                  border: `1px solid ${p.abnormal ? 'var(--alert-500)' : 'var(--border-subtle)'}`,
+                  borderRadius: 6,
+                  padding: '12px 14px',
+                }}
+              >
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-dim)', marginBottom: 6 }}>{p.phase}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {p.abnormal
+                    ? <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--alert-500)', display: 'block', boxShadow: '0 0 6px var(--alert-500)', flexShrink: 0 }} className="blink" />
+                    : <CheckCircle size={12} color="var(--normal-500)" />
+                  }
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, color: p.abnormal ? 'var(--alert-500)' : 'var(--normal-500)' }}>
+                    {p.value}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
       </div>
-    </div>
+    </>
   );
 }

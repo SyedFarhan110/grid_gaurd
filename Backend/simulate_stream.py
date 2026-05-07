@@ -2,15 +2,22 @@ import time
 import json
 import requests
 import pandas as pd
+from collections import deque
 from itertools import cycle
 
 # Configuration
 CSV_PATH = "data/unified_pipeline_stream.csv"
 API_URL = "http://127.0.0.1:8000/predict/pipeline"
 DELAY_SECONDS = 1.0  # Time to wait between requests
+load_history_buffer = deque(maxlen=60)
 
 def build_payload(row):
     """Map CSV row to the FullPipelineInput schema expected by the API."""
+    try:
+        load_history_buffer.append(float(row.get("feeder_load", 0)))
+    except Exception:
+        load_history_buffer.append(0.0)
+
     return {
         "fault_prediction": {
             "KW_Plus": row["KW_Plus"],
@@ -61,7 +68,8 @@ def build_payload(row):
             "season": row["season"],
             "temp_bucket": row["temp_bucket"],
             "baseline_mean": row["baseline_mean"],
-            "baseline_std": row["baseline_std"]
+            "baseline_std": row["baseline_std"],
+            "load_history": list(load_history_buffer)
         },
         "fault_classification": {
             "Ia": row["Ia"],
@@ -84,6 +92,7 @@ def build_payload(row):
 def stream_data():
     print(f"Loading data from {CSV_PATH}...")
     df = pd.read_csv(CSV_PATH)
+    load_history_buffer.clear()
     
     # We use itertools.cycle to loop through the dataframe infinitely
     row_iterator = cycle(df.to_dict('records'))

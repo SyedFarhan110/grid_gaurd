@@ -1,6 +1,7 @@
 import asyncio
 import json
 import pandas as pd
+from collections import deque
 from itertools import cycle
 from typing import List
 import traceback
@@ -10,6 +11,7 @@ class StreamManager:
         self.queues: List[asyncio.Queue] = []
         self.is_running = False
         self._task = None
+        self._load_history = deque(maxlen=60)
 
     async def add_client(self) -> asyncio.Queue:
         q = asyncio.Queue()
@@ -27,6 +29,7 @@ class StreamManager:
     def start_stream(self):
         if not self.is_running:
             self.is_running = True
+            self._load_history.clear()
             self._task = asyncio.create_task(self._producer())
 
     def stop_stream(self):
@@ -35,7 +38,7 @@ class StreamManager:
             self._task.cancel()
             self._task = None
 
-    def _build_payload(self, row):
+    def _build_payload(self, row, load_history=None):
         return {
             "fault_prediction": {
                 "KW_Plus": row.get("KW_Plus", 0),
@@ -86,7 +89,8 @@ class StreamManager:
                 "season": row.get("season", "unknown"),
                 "temp_bucket": row.get("temp_bucket", "unknown"),
                 "baseline_mean": row.get("baseline_mean", 0),
-                "baseline_std": row.get("baseline_std", 0)
+                "baseline_std": row.get("baseline_std", 0),
+                "load_history": load_history or []
             },
             "fault_classification": {
                 "Ia": row.get("Ia", 0),
@@ -128,7 +132,12 @@ class StreamManager:
                     break
                 
                 try:
-                    payload_dict = self._build_payload(row)
+                    try:
+                        self._load_history.append(float(row.get("feeder_load", 0)))
+                    except Exception:
+                        self._load_history.append(0.0)
+
+                    payload_dict = self._build_payload(row, load_history=list(self._load_history))
                     payload_obj = FullPipelineInput(**payload_dict)
                     
                     # Run inference pipeline using threadpool if blocking, but it's fast enough
