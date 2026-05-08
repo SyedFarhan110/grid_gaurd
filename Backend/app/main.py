@@ -52,6 +52,7 @@ app.add_middleware(
     allow_credentials=False,   # must be False when allow_origins=["*"]
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["ngrok-skip-browser-warning"],
 )
 
 app.include_router(health.router,   prefix="/health",  tags=["Health"])

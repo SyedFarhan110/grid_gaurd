@@ -17,17 +17,15 @@ async def stream_events(request: Request):
     async def event_generator():
         try:
             while True:
-                # If client disconnects, break out
                 if await request.is_disconnected():
                     break
                 
-                # Wait for next message from producer
                 try:
-                    # Timeout to check for disconnects frequently
-                    message = await asyncio.wait_for(queue.get(), timeout=1.0)
-                    yield f"data: {message}\n\n"
+                    # Wait for next message from producer (5s timeout for stability)
+                    message = await asyncio.wait_for(queue.get(), timeout=5.0)
+                    yield f"event: stream_event\ndata: {message}\n\n"
                 except asyncio.TimeoutError:
-                    # Send a keep-alive heartbeat if no data
+                    # Send a heartbeat every 5s to keep ngrok connection alive
                     yield "event: heartbeat\ndata: {}\n\n"
         finally:
             stream_manager.remove_client(queue)
@@ -38,6 +36,7 @@ async def stream_events(request: Request):
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            "X-Accel-Buffering": "no"  # Disable buffering for ngrok/Nginx
+            "X-Accel-Buffering": "no",
+            "ngrok-skip-browser-warning": "true"
         }
     )

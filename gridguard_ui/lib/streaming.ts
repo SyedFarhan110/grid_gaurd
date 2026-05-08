@@ -2,7 +2,7 @@
 
 import { PipelineResult } from '@/lib/api';
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://unadmonitory-ungauntleted-kiesha.ngrok-free.dev';
+const BASE_URL = (process.env.NEXT_PUBLIC_API_URL || 'https://unadmonitory-ungauntleted-kiesha.ngrok-free.dev').replace(/\/$/, '');
 
 export interface StreamEvent {
   event_id: string;
@@ -19,7 +19,7 @@ export type ErrorCallback = (error: Error) => void;
  * Manages SSE connection to the backend streaming endpoint
  */
 export class StreamManager {
-  private eventSource: EventSource | null = null;
+  private reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
   private callbacks: Set<StreamCallback> = new Set();
   private errorCallbacks: Set<ErrorCallback> = new Set();
   private isConnected = false;
@@ -34,60 +34,99 @@ export class StreamManager {
   connect(): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
-        if (this.eventSource) {
+        if (this.reader) {
           this.disconnect();
         }
 
-        const streamUrl = `${BASE_URL}/stream/events?ngrok-skip-browser-warning=1`;
-        console.log(`[StreamManager] Connecting to ${streamUrl}`);
+        const streamUrl = `${BASE_URL}/stream/events`;
+        console.log(`[StreamManager] Connecting to ${streamUrl} via fetch`);
 
-        this.eventSource = new EventSource(streamUrl);
-
-        // Handle incoming stream events (supports both named events and default SSE messages)
-        const handleStreamMessage = (event: MessageEvent) => {
-          try {
-            const parsed = JSON.parse(event.data) as StreamEvent & { prediction?: PipelineResult; pipeline_result?: PipelineResult };
-            const data: StreamEvent = {
-              ...parsed,
-              pipeline_result: parsed.pipeline_result ?? parsed.prediction,
-            };
-            this.reconnectAttempts = 0; // Reset attempts on successful event
-            this.resetHeartbeatTimeout();
-            this.notifyCallbacks(data);
-          } catch (err) {
-            const error = new Error(`Failed to parse stream event: ${err}`);
-            this.notifyErrors(error);
+        fetch(streamUrl, {
+          headers: {
+            'ngrok-skip-browser-warning': '1',
+            'Accept': 'text/event-stream',
+            'Cache-Control': 'no-cache',
           }
-        };
+        }).then(async (response) => {
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+          if (!response.body) {
+            throw new Error('No response body');
+          }
 
-        this.eventSource.addEventListener('stream_event', handleStreamMessage);
-        this.eventSource.onmessage = handleStreamMessage;
-
-        // Handle heartbeat/keepalive if the backend emits it
-        this.eventSource.addEventListener('heartbeat', () => {
-          console.log('[StreamManager] Heartbeat received');
-          this.resetHeartbeatTimeout();
-        });
-
-        this.eventSource.addEventListener('open', () => {
           console.log('[StreamManager] Connected to streaming endpoint');
           this.isConnected = true;
           this.reconnectAttempts = 0;
           this.resetHeartbeatTimeout();
           resolve();
-        });
 
-        this.eventSource.addEventListener('error', () => {
-          if (this.eventSource?.readyState === EventSource.CLOSED) {
-            console.log('[StreamManager] Connection closed');
-            this.handleConnectionLoss();
-          } else if (this.eventSource?.readyState === EventSource.CONNECTING) {
-            console.warn('[StreamManager] Reconnecting...');
+          this.reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+
+          try {
+            while (true) {
+              const { done, value } = await this.reader.read();
+              if (done) {
+                console.log('[StreamManager] Stream closed by server');
+                this.handleConnectionLoss();
+                break;
+              }
+
+              buffer += decoder.decode(value, { stream: true });
+              const parts = buffer.split('\n\n');
+              buffer = parts.pop() || '';
+
+              for (const part of parts) {
+                const lines = part.split('\n');
+                let eventType = 'message';
+                let data = '';
+
+                for (const line of lines) {
+                  if (line.startsWith('event:')) {
+                    eventType = line.slice(6).trim();
+                  } else if (line.startsWith('data:')) {
+                    data = line.slice(5).trim();
+                  }
+                }
+
+                if (eventType === 'heartbeat' || data === '{}') {
+                  console.log('[StreamManager] Heartbeat received');
+                  this.resetHeartbeatTimeout();
+                  continue;
+                }
+
+                if (data) {
+                  try {
+                    const parsed = JSON.parse(data) as StreamEvent & { prediction?: PipelineResult; pipeline_result?: PipelineResult };
+                    const eventData: StreamEvent = {
+                      ...parsed,
+                      pipeline_result: parsed.pipeline_result ?? parsed.prediction,
+                    };
+                    this.reconnectAttempts = 0;
+                    this.resetHeartbeatTimeout();
+                    this.notifyCallbacks(eventData);
+                  } catch (err) {
+                    console.error('[StreamManager] Failed to parse event data:', err);
+                  }
+                }
+              }
+            }
+          } catch (err) {
+            if (this.isConnected) {
+              console.error('[StreamManager] Reader error:', err);
+              this.handleConnectionLoss();
+            }
           }
+        }).catch((err) => {
+          const error = new Error(`Failed to connect to streaming: ${err}`);
+          this.notifyErrors(error);
+          reject(error);
         });
 
       } catch (err) {
-        const error = new Error(`Failed to connect to streaming: ${err}`);
+        const error = new Error(`Failed to initialize stream: ${err}`);
         this.notifyErrors(error);
         reject(error);
       }
@@ -98,9 +137,9 @@ export class StreamManager {
    * Disconnect from the streaming endpoint
    */
   disconnect(): void {
-    if (this.eventSource) {
-      this.eventSource.close();
-      this.eventSource = null;
+    if (this.reader) {
+      this.reader.cancel().catch(() => {});
+      this.reader = null;
     }
     this.isConnected = false;
     this.clearHeartbeatTimeout();
@@ -135,7 +174,7 @@ export class StreamManager {
    * Check if connected
    */
   isReady(): boolean {
-    return this.isConnected && this.eventSource?.readyState === EventSource.OPEN;
+    return this.isConnected && this.reader !== null;
   }
 
   /**
@@ -195,11 +234,9 @@ export class StreamManager {
     this.clearHeartbeatTimeout();
     this.heartbeatTimeout = setTimeout(() => {
       console.warn('[StreamManager] Heartbeat timeout - connection may be stale');
-      if (this.eventSource) {
-        this.disconnect();
-        this.handleConnectionLoss();
-      }
-    }, 15000); // 15 second timeout
+      this.disconnect();
+      this.handleConnectionLoss();
+    }, 45000); // 45 second timeout (ngrok needs more room)
   }
 
   /**
