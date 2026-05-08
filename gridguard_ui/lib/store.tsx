@@ -334,11 +334,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Initial fetch — fault records only from Firestore
     api.results(100, true).then(r => dispatch({ type: 'SET_HISTORY', payload: r.results })).catch(() => {});
 
-    // Auto-refresh history every 10 seconds to pick up new faults from Firestore
+    // Auto-refresh history every 60 seconds to pick up new faults from Firestore
     const historyInterval = setInterval(() => {
       api.results(100, true).then(r => dispatch({ type: 'SET_HISTORY', payload: r.results })).catch(() => {});
       api.summary().then(s => dispatch({ type: 'SET_SUMMARY', payload: s })).catch(() => {});
-    }, 10000);
+    }, 60000);
 
     return () => clearInterval(historyInterval);
   }, []);
