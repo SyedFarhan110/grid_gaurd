@@ -143,13 +143,27 @@ def _run_fault_prediction(data: Dict) -> Dict:
     }
 
 
-def _run_fault_classification(data: Dict) -> Dict:
+def _run_fault_classification(data: Dict, fault_confirmed: bool = False) -> Dict:
     model = model_registry.get("fault_classification")
     X     = prepare_fault_classification_features(data)
 
     pred  = int(model.predict(X)[0])
     proba = model.predict_proba(X)[0]
     label = FAULT_TYPE_LABELS.get(pred, str(pred))
+
+    # If fault is confirmed by the prediction model but classification says "No Fault",
+    # fall back to the highest-probability real fault type (excluding "No Fault").
+    if fault_confirmed and label == "No Fault":
+        no_fault_idx = next(
+            (i for i, lbl in FAULT_TYPE_LABELS.items() if lbl == "No Fault"), None
+        )
+        best_fault_idx = max(
+            (i for i in range(len(proba)) if i != no_fault_idx),
+            key=lambda i: proba[i],
+            default=pred,
+        )
+        pred  = best_fault_idx
+        label = FAULT_TYPE_LABELS.get(pred, str(pred))
 
     all_probs = {
         FAULT_TYPE_LABELS.get(i, str(i)): round(float(p) * 100, 2)
@@ -158,7 +172,7 @@ def _run_fault_classification(data: Dict) -> Dict:
     return {
         "fault_type_code":   pred,
         "fault_type_label":  label,
-        "confidence_pct":    round(float(max(proba)) * 100, 2),
+        "confidence_pct":    round(float(proba[pred]) * 100, 2),
         "all_probabilities": all_probs,
     }
 
@@ -413,7 +427,7 @@ def run_full_pipeline(payload: FullPipelineInput) -> Dict[str, Any]:
                 result["timestamp"] = result_store.get_by_id(record_id)["timestamp"]
                 return result
 
-            cls_result = _run_fault_classification(cls_data)
+            cls_result = _run_fault_classification(cls_data, fault_confirmed=True)
             result["classification"] = cls_result
             stages_run.append("fault_classification")
 

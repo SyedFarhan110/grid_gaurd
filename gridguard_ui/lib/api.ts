@@ -1,6 +1,6 @@
 // lib/api.ts — All FastAPI backend calls
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8007';
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8006';
 
 export interface FaultPredictionInput {
   KW_Plus: number;
@@ -145,18 +145,18 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  health:       () => apiFetch<{ status: string; models_loaded: number; all_ready: boolean }>('/health'),
-  modelStatus:  () => apiFetch<ModelStatus>('/models/status'),
-  loadModels:   () => apiFetch<{ message: string }>('/models/load', { method: 'POST' }),
+  health: () => apiFetch<{ status: string; models_loaded: number; all_ready: boolean }>('/health'),
+  modelStatus: () => apiFetch<ModelStatus>('/models/status'),
+  loadModels: () => apiFetch<{ message: string }>('/models/load', { method: 'POST' }),
 
-  pipeline:     (body: PipelineInput)              => apiFetch<PipelineResult>('/predict/pipeline', { method: 'POST', body: JSON.stringify(body) }),
-  predictFault: (body: FaultPredictionInput)       => apiFetch<FaultPredictionResult>('/predict/fault', { method: 'POST', body: JSON.stringify(body) }),
-  classify:     (body: FaultClassificationInput)   => apiFetch<FaultClassificationResult>('/predict/classify', { method: 'POST', body: JSON.stringify(body) }),
-  localize:     (body: LocalizationInput)          => apiFetch<LocalizationResult>('/predict/localize', { method: 'POST', body: JSON.stringify(body) }),
-  latentAlert:  (body: LatentAlertInput)           => apiFetch<LatentAlertResult>('/predict/latent-alert', { method: 'POST', body: JSON.stringify(body) }),
+  pipeline: (body: PipelineInput) => apiFetch<PipelineResult>('/predict/pipeline', { method: 'POST', body: JSON.stringify(body) }),
+  predictFault: (body: FaultPredictionInput) => apiFetch<FaultPredictionResult>('/predict/fault', { method: 'POST', body: JSON.stringify(body) }),
+  classify: (body: FaultClassificationInput) => apiFetch<FaultClassificationResult>('/predict/classify', { method: 'POST', body: JSON.stringify(body) }),
+  localize: (body: LocalizationInput) => apiFetch<LocalizationResult>('/predict/localize', { method: 'POST', body: JSON.stringify(body) }),
+  latentAlert: (body: LatentAlertInput) => apiFetch<LatentAlertResult>('/predict/latent-alert', { method: 'POST', body: JSON.stringify(body) }),
 
-  results:      (limit = 50)  => apiFetch<{ count: number; results: PipelineResult[] }>(`/results/?limit=${limit}`),
-  summary:      ()            => apiFetch<ResultsSummary>('/results/summary'),
-  getResult:    (id: string)  => apiFetch<PipelineResult>(`/results/${id}`),
+  results: (limit = 100, fault_only = false) => apiFetch<{ count: number; results: PipelineResult[] }>(`/results/?limit=${limit}&fault_only=${fault_only}`),
+  summary: () => apiFetch<ResultsSummary>('/results/summary'),
+  getResult: (id: string) => apiFetch<PipelineResult>(`/results/${id}`),
   updateResultStatus: (id: string, status: string) => apiFetch<{ message: string }>(`/results/${id}/status?status=${status}`, { method: 'PATCH' }),
 };

@@ -87,13 +87,20 @@ function FilteredFaultStack({ faults }: { faults: PipelineResult[] }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [detailedData, setDetailedData] = useState<Record<string, PipelineResult>>({});
   const [loadingId, setLoadingId] = useState<string | null>(null);
+  const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
   const { isMobile } = useBreakpoint();
 
   const handleUpdateStatus = (id: string, status: string) => {
     if (detailedData[id]) {
       setDetailedData(prev => ({ ...prev, [id]: { ...prev[id], status: status as any } }));
     }
+    // Remove from fault stack when resolved or marked as false positive
+    if (status === 'resolved' || status === 'false_positive') {
+      setHiddenIds(prev => new Set([...prev, id]));
+      if (expandedId === id) setExpandedId(null);
+    }
   };
+
 
   const toggleExpand = async (fault: PipelineResult, isArchived: boolean) => {
     if (expandedId === fault.id) {
@@ -148,7 +155,7 @@ function FilteredFaultStack({ faults }: { faults: PipelineResult[] }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      {faults.map((fault, index) => {
+      {faults.filter(f => !hiddenIds.has(f.id)).map((fault, index) => {
         const isArchived = index >= 5;
         const isOpen = expandedId === fault.id;
         const data = detailedData[fault.id] || fault;
@@ -169,7 +176,9 @@ function FilteredFaultStack({ faults }: { faults: PipelineResult[] }) {
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                 gap: 12,
                 background: isOpen ? 'var(--bg-card)' : 'var(--bg-elevated)',
-                border: `1px solid ${isOpen ? 'var(--accent-500)' : 'var(--border-subtle)'}`,
+                borderTop: `1px solid ${isOpen ? 'var(--accent-500)' : 'var(--border-subtle)'}`,
+                borderRight: `1px solid ${isOpen ? 'var(--accent-500)' : 'var(--border-subtle)'}`,
+                borderBottom: `1px solid ${isOpen ? 'var(--accent-500)' : 'var(--border-subtle)'}`,
                 borderLeft: `3px solid ${riskColor}`,
                 borderRadius: 8, padding: '12px 14px',
                 flexDirection: isMobile ? 'column' : 'row',

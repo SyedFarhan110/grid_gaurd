@@ -36,22 +36,49 @@ class ResultStore:
 
     def get_all(
         self,
-        limit: int = 50,
+        limit: int = 100,
         fault_only: bool = False,
         alert_only: bool = False,
     ) -> List[Dict[str, Any]]:
-        # If Firestore is enabled, we could fetch from DB. 
-        # But for live speed, we return from cache.
-        # For historical deep-dives, we will use Firestore.
-        results = list(self._cache)
-        results.reverse()
+        # Start with in-memory cache (newest first)
+        cache_results = list(self._cache)
+        cache_results.reverse()
 
+        # If Firestore is available and cache has fewer records than requested,
+        # supplement from Firestore to fill up to `limit`
+        if db_client.enabled and len(cache_results) < limit:
+            try:
+                query = db_client.db.collection(self.collection_name)\
+                    .order_by("timestamp", direction="DESCENDING")\
+                    .limit(limit)
+                
+                fs_docs = query.stream()
+                cache_ids = {r["id"] for r in cache_results}
+                
+                for doc in fs_docs:
+                    data = doc.to_dict()
+                    # Only add records not already in cache to avoid duplicates
+                    if data and data.get("id") not in cache_ids:
+                        cache_results.append(data)
+                        cache_ids.add(data["id"])
+
+                # Re-sort merged list by timestamp descending
+                cache_results.sort(
+                    key=lambda r: r.get("timestamp", ""),
+                    reverse=True
+                )
+            except Exception as e:
+                print(f"Failed to fetch from Firestore: {e}")
+
+        # Apply filters
+        results = cache_results
         if fault_only:
             results = [r for r in results if r.get("pipeline", {}).get("fault_predicted") is True]
         if alert_only:
             results = [r for r in results if r.get("latent_alert", {}).get("anomaly_detected") is True]
 
         return results[:limit]
+
 
     def get_by_id(self, record_id: str) -> Optional[Dict[str, Any]]:
         # 1. Check cache first
