@@ -38,7 +38,7 @@ export class StreamManager {
           this.disconnect();
         }
 
-        const streamUrl = `${BASE_URL}/stream/events`;
+        const streamUrl = `${BASE_URL}/stream/events?ngrok-skip-browser-warning=1`;
         console.log(`[StreamManager] Connecting to ${streamUrl}`);
 
         this.eventSource = new EventSource(streamUrl);

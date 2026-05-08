@@ -1,6 +1,6 @@
 // lib/api.ts — All FastAPI backend calls
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8006';
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://unadmonitory-ungauntleted-kiesha.ngrok-free.dev';
 
 export interface FaultPredictionInput {
   KW_Plus: number;
@@ -134,7 +134,11 @@ export interface ResultsSummary {
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'ngrok-skip-browser-warning': '1',   // bypass ngrok interstitial page
+      ...((options?.headers as Record<string, string>) || {}),
+    },
     ...options,
   });
   if (!res.ok) {
