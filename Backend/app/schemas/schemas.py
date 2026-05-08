@@ -159,6 +159,7 @@ class LatentAlertResult(BaseModel):
 class PipelineResult(BaseModel):
     id:               str
     timestamp:        str
+    status:           str = "pending"  # pending, investigated, resolved, false_positive
     pipeline:         FaultPredictionResult
     classification:   Optional[FaultClassificationResult] = None
     localization:     Optional[LocalizationResult]        = None

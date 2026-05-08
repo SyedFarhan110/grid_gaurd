@@ -5,6 +5,8 @@ import { Tag, CheckCircle } from 'lucide-react';
 
 const FAULT_COLORS: Record<string, string> = {
   'No Fault': 'var(--normal-500)',
+  'Normal':   'var(--normal-500)',
+  'Fault Detected': 'var(--alert-500)',
   'LG':       'var(--accent-500)',
   'LL':       'var(--warn-500)',
   'LLG':      '#FF8C42',
@@ -14,6 +16,8 @@ const FAULT_COLORS: Record<string, string> = {
 
 const FAULT_DESCRIPTIONS: Record<string, string> = {
   'No Fault': 'All phases operating normally. No intervention required.',
+  'Normal':   'All phases operating normally. No intervention required.',
+  'Fault Detected': 'A fault has been detected by the primary monitoring system, but the specific type is currently unclassified.',
   'LG':       'Line-to-Ground fault. One phase contacted ground. Most common (~70%). Affects single feeder.',
   'LL':       'Line-to-Line fault. Two phases in contact. High fault current. Requires prompt isolation.',
   'LLG':      'Double Line-to-Ground. Two phases grounded simultaneously. Substation protection activates.',
@@ -38,9 +42,12 @@ export default function Classification() {
   const result = state.stickyFaultResult ?? state.latestResult;
   const cls    = result?.classification;
 
-  const faultLabel = cls?.fault_type_label ?? 'No Fault';
+  const faultLabel = cls?.fault_type_label === 'No Fault'
+    ? (result?.pipeline.fault_predicted ? 'Fault Detected' : 'Normal')
+    : (cls?.fault_type_label ?? 'No Fault');
+
   const confidence = cls?.confidence_pct ?? 0;
-  const faultColor = FAULT_COLORS[faultLabel] ?? 'var(--text-secondary)';
+  const faultColor = FAULT_COLORS[faultLabel] || FAULT_COLORS[cls?.fault_type_label || 'No Fault'] || 'var(--text-secondary)';
 
   const probData = cls?.all_probabilities
     ? Object.entries(cls.all_probabilities).map(([name, value]) => ({

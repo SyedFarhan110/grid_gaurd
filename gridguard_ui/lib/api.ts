@@ -1,6 +1,6 @@
 // lib/api.ts — All FastAPI backend calls
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8006';
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8007';
 
 export interface FaultPredictionInput {
   KW_Plus: number;
@@ -108,6 +108,7 @@ export interface LatentAlertResult {
 export interface PipelineResult {
   id: string;
   timestamp: string;
+  status?: 'pending' | 'investigated' | 'resolved' | 'false_positive';
   pipeline: FaultPredictionResult;
   classification?: FaultClassificationResult;
   localization?: LocalizationResult;
@@ -157,4 +158,5 @@ export const api = {
   results:      (limit = 50)  => apiFetch<{ count: number; results: PipelineResult[] }>(`/results/?limit=${limit}`),
   summary:      ()            => apiFetch<ResultsSummary>('/results/summary'),
   getResult:    (id: string)  => apiFetch<PipelineResult>(`/results/${id}`),
+  updateResultStatus: (id: string, status: string) => apiFetch<{ message: string }>(`/results/${id}/status?status=${status}`, { method: 'PATCH' }),
 };

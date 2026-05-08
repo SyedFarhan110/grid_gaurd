@@ -54,7 +54,7 @@ FAULT_ETR_CAPS = {
     "LLG":      14.0,
     "LLL":       8.0,
     "LLLG":     12.0,
-    "No Fault":  0.5,
+    "No Fault":  0.0,
 }
 
 

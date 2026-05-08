@@ -45,6 +45,15 @@ def get_result(result_id: str) -> Dict[str, Any]:
     return record
 
 
+@router.patch("/{result_id}/status", summary="Update result status")
+def update_status(result_id: str, status: str = Query(..., description="New status (pending/investigated/resolved/false_positive)")) -> Dict[str, Any]:
+    """Updates the investigation status of a specific result."""
+    success = result_store.update_status(result_id, status)
+    if not success:
+        raise HTTPException(status_code=404, detail=f"Result '{result_id}' not found or update failed.")
+    return {"message": "Status updated successfully", "id": result_id, "status": status}
+
+
 @router.delete("/clear", summary="Clear all stored results")
 def clear_results() -> Dict[str, str]:
     """Clears the in-memory result history. Useful during testing."""

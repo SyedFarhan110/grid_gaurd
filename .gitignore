@@ -1,6 +1,7 @@
 # Virtual environments
 Backend/myvenv/
 Backend/venv/
+serviceAccountKey.json
 
 # Model storage
 Backend/models_store/*.pkl

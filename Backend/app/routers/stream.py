@@ -27,7 +27,8 @@ async def stream_events(request: Request):
                     message = await asyncio.wait_for(queue.get(), timeout=1.0)
                     yield f"data: {message}\n\n"
                 except asyncio.TimeoutError:
-                    pass # Check is_disconnected and loop again
+                    # Send a keep-alive heartbeat if no data
+                    yield "event: heartbeat\ndata: {}\n\n"
         finally:
             stream_manager.remove_client(queue)
 
