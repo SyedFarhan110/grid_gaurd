@@ -26,6 +26,35 @@ class StreamManager:
         if not self.queues:
             self.stop_stream()
 
+    def broadcast(self, result: dict, raw_data: dict = None):
+        """
+        Broadcast a result to all connected clients.
+        Used by the API endpoint to push results to the UI.
+        """
+        if not self.queues:
+            return
+
+        message = json.dumps({
+            "event_id": result.get("id"),
+            "timestamp": result.get("timestamp"),
+            "raw_data": raw_data,
+            "pipeline_result": result,
+            "prediction": result # fallback for UI components expecting 'prediction'
+        })
+        
+        # We need to run this in the event loop
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                for q in self.queues:
+                    if q.qsize() < 100:
+                        loop.call_soon_threadsafe(q.put_nowait, message)
+            else:
+                # Fallback if no loop is running (rare in FastAPI)
+                pass
+        except Exception as e:
+            print(f"Broadcast error: {e}")
+
     def start_stream(self):
         if not self.is_running:
             self.is_running = True

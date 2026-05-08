@@ -466,6 +466,14 @@ def run_full_pipeline(payload: FullPipelineInput) -> Dict[str, Any]:
         record_id = result_store.save(result)
         result["id"]        = record_id
         result["timestamp"] = result_store.get_by_id(record_id)["timestamp"]
+        
+        # Broadcast to all connected stream clients
+        try:
+            from app.core.stream_manager import stream_manager
+            stream_manager.broadcast(result)
+        except Exception as e:
+            print(f"Failed to broadcast: {e}")
+
         return result
 
     except Exception as e:
