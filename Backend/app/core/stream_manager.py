@@ -12,8 +12,13 @@ class StreamManager:
         self.is_running = False
         self._task = None
         self._load_history = deque(maxlen=60)
+        self._loop = None
 
     async def add_client(self) -> asyncio.Queue:
+        # Capture the running loop so we can broadcast from any thread
+        if not self._loop:
+            self._loop = asyncio.get_running_loop()
+            
         q = asyncio.Queue()
         self.queues.append(q)
         if not self.is_running:
@@ -29,9 +34,9 @@ class StreamManager:
     def broadcast(self, result: dict, raw_data: dict = None):
         """
         Broadcast a result to all connected clients.
-        Used by the API endpoint to push results to the UI.
+        Thread-safe: can be called from sync code or other threads.
         """
-        if not self.queues:
+        if not self.queues or not self._loop:
             return
 
         message = json.dumps({
@@ -39,21 +44,16 @@ class StreamManager:
             "timestamp": result.get("timestamp"),
             "raw_data": raw_data,
             "pipeline_result": result,
-            "prediction": result # fallback for UI components expecting 'prediction'
+            "prediction": result
         })
         
-        # We need to run this in the event loop
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                for q in self.queues:
-                    if q.qsize() < 100:
-                        loop.call_soon_threadsafe(q.put_nowait, message)
-            else:
-                # Fallback if no loop is running (rare in FastAPI)
-                pass
-        except Exception as e:
-            print(f"Broadcast error: {e}")
+        # Schedule the 'put' operation on the main event loop
+        def _put_in_all_queues():
+            for q in self.queues:
+                if q.qsize() < 100:
+                    q.put_nowait(message)
+
+        self._loop.call_soon_threadsafe(_put_in_all_queues)
 
     def start_stream(self):
         if not self.is_running:

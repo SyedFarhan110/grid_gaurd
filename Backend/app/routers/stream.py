@@ -32,4 +32,12 @@ async def stream_events(request: Request):
         finally:
             stream_manager.remove_client(queue)
 
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_generator(), 
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"  # Disable buffering for ngrok/Nginx
+        }
+    )
