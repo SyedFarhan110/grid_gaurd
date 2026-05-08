@@ -14,14 +14,26 @@ from app.core.stream_manager import stream_manager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Load all models at startup."""
+    """Actions to perform on startup and shutdown."""
     import warnings
     warnings.filterwarnings("ignore")
+    
+    # 1. Load ML models
     print("🔄 Loading all ML models at startup...")
     model_registry.load_all()
     print("✅ All models loaded successfully!")
+    
+    # 2. Start the autonomous prediction engine (Simulation)
+    print("📡 Starting autonomous prediction engine...")
+    stream_manager.start_stream()
+    print("✅ Prediction engine is running in background.")
+    
     yield
+    
+    # Shutdown logic
     print("🛑 Shutting down server...")
+    stream_manager.stop_stream()
+    print("✅ Prediction engine stopped.")
 
 
 app = FastAPI(

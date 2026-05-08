@@ -1,6 +1,6 @@
 // lib/api.ts — All FastAPI backend calls
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://unadmonitory-ungauntleted-kiesha.ngrok-free.dev';
+const BASE_URL = (process.env.NEXT_PUBLIC_API_URL || 'https://unadmonitory-ungauntleted-kiesha.ngrok-free.dev').replace(/\/$/, '');
 
 export interface FaultPredictionInput {
   KW_Plus: number;
