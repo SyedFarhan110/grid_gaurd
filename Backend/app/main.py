@@ -48,7 +48,15 @@ Built for Karachi's power distribution network. This API runs a chained ML pipel
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:3000",                          # local Next.js dev
+        "http://localhost:8006",                          # local backend dev
+        "https://grid-gaurd-six.vercel.app",                     # production Vercel URL
+        "https://*.vercel.app",                          # Vercel preview deployments
+        "https://unadmonitory-ungauntleted-kiesha.ngrok-free.dev",  # your ngrok static domain
+        "https://*.ngrok-free.app",                      # any ngrok tunnel
+        "https://*.ngrok-free.dev",                      # any ngrok tunnel (.dev TLD)
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
