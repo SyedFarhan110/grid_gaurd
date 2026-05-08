@@ -384,7 +384,7 @@ def _run_latent_alert(data: Dict) -> Dict:
 # ── Main Pipeline Endpoint ─────────────────────────────────────────────────────
 
 @router.post("/pipeline", summary="🚀 Run full chained prediction pipeline")
-def run_full_pipeline(payload: FullPipelineInput) -> Dict[str, Any]:
+def run_full_pipeline(payload: FullPipelineInput, raw_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     **Main endpoint.** Runs the complete fault management pipeline:
 
@@ -470,7 +470,7 @@ def run_full_pipeline(payload: FullPipelineInput) -> Dict[str, Any]:
         # Broadcast to all connected stream clients
         try:
             from app.core.stream_manager import stream_manager
-            stream_manager.broadcast(result)
+            stream_manager.broadcast(result, raw_data=raw_data)
         except Exception as e:
             print(f"Failed to broadcast: {e}")
 

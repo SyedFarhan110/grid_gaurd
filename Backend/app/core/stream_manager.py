@@ -17,19 +17,20 @@ class StreamManager:
     async def add_client(self) -> asyncio.Queue:
         # Capture the running loop so we can broadcast from any thread
         if not self._loop:
-            self._loop = asyncio.get_running_loop()
+            try:
+                self._loop = asyncio.get_running_loop()
+            except RuntimeError:
+                pass
             
         q = asyncio.Queue()
         self.queues.append(q)
-        if not self.is_running:
-            self.start_stream()
         return q
 
     def remove_client(self, q: asyncio.Queue):
         if q in self.queues:
             self.queues.remove(q)
-        if not self.queues:
-            self.stop_stream()
+        # Note: We NO LONGER stop the stream when clients leave.
+        # It runs autonomously on the server.
 
     def broadcast(self, result: dict, raw_data: dict = None):
         """
@@ -57,6 +58,13 @@ class StreamManager:
 
     def start_stream(self):
         if not self.is_running:
+            # Capture loop if not already done
+            if not self._loop:
+                try:
+                    self._loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    pass
+
             self.is_running = True
             self._load_history.clear()
             self._task = asyncio.create_task(self._producer())
@@ -169,23 +177,9 @@ class StreamManager:
                     payload_dict = self._build_payload(row, load_history=list(self._load_history))
                     payload_obj = FullPipelineInput(**payload_dict)
                     
-                    # Run inference pipeline using threadpool if blocking, but it's fast enough
-                    # For safety, using asyncio.to_thread
-                    prediction_result = await asyncio.to_thread(run_full_pipeline, payload_obj)
-                    
-                    full_result = {
-                        "count": count,
-                        "raw_data": row,
-                        "prediction": prediction_result
-                    }
-                    
-                    message = json.dumps(full_result)
-                    
-                    # Push to all client queues
-                    for q in self.queues:
-                        # only put if queue size is reasonable to avoid unbounded growth
-                        if q.qsize() < 100:
-                            await q.put(message)
+                    # Run inference pipeline using threadpool
+                    # We pass the original 'row' as raw_data so the UI can update charts
+                    await asyncio.to_thread(run_full_pipeline, payload_obj, raw_data=row)
                     
                     count += 1
                     
