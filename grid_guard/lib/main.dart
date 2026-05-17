@@ -104,7 +104,7 @@ class _SplashScreenState extends State<SplashScreen>
                 const SizedBox(height: 24),
                 // Tagline
                 const Text(
-                  'Proactive Fault Precaution',
+                  'Proactive Fault Management',
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 18,
