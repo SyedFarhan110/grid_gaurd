@@ -35,19 +35,16 @@ from app.schemas.schemas import (
 router = APIRouter()
 
 # ── Fault-type → ETR cause mapping ────────────────────────────────────────────
-# Maps fault classification labels to the closest cause in etr_dataset.csv.
-# Cause has a large impact on predicted duration (median: overload=3.4h, storm=15h).
 FAULT_TYPE_TO_CAUSE = {
-    "LG":       "grid station fault",   # median 5.2 hrs
-    "LL":       "grid station fault",   # median 5.2 hrs
-    "LLG":      "transformer fault",    # median 5.1 hrs
-    "LLL":      "network overload",     # median 3.4 hrs  ← lowest
-    "LLLG":     "network overload",     # median 3.4 hrs
+    "LG":       "grid station fault",
+    "LL":       "grid station fault",
+    "LLG":      "transformer fault",
+    "LLL":      "network overload",
+    "LLLG":     "network overload",
     "No Fault": "grid station fault",
 }
 
-# ── Per-fault hard caps (hrs) — prevents outlier-driven over-prediction ────────
-# Based on P75 of etr_dataset per cause group (without retraining).
+# ── Per-fault hard caps (hrs) ──────────────────────────────────────────────────
 FAULT_ETR_CAPS = {
     "LG":       10.0,
     "LL":       10.0,
@@ -98,12 +95,9 @@ def _load_etr_area_factors() -> Dict[str, float]:
     if not all_durations:
         return {}
 
-    # FIX: cap at 90th percentile before computing medians so extreme
-    # storm/multi-day outages don't inflate area factors.
-    all_arr  = np.array(all_durations)
-    cap_val  = float(np.percentile(all_arr, 90))
-    all_arr  = np.clip(all_arr, 0, cap_val)
-
+    all_arr       = np.array(all_durations)
+    cap_val       = float(np.percentile(all_arr, 90))
+    all_arr       = np.clip(all_arr, 0, cap_val)
     global_median = float(np.median(all_arr))
     unit_divisor  = 60.0 if global_median > 48 else 1.0
     global_hours  = max(0.25, global_median / unit_divisor)
@@ -130,9 +124,9 @@ def _get_risk_level(prob: float) -> str:
 
 
 def _run_fault_prediction(data: Dict) -> Dict:
-    model     = model_registry.get("fault_prediction")
-    X         = prepare_fault_prediction_features(data)
-    proba     = model.predict_proba(X)[0]
+    model      = model_registry.get("fault_prediction")
+    X          = prepare_fault_prediction_features(data)
+    proba      = model.predict_proba(X)[0]
     fault_prob = float(proba[1])
     predicted  = bool(fault_prob >= 0.5)
     return {
@@ -151,8 +145,6 @@ def _run_fault_classification(data: Dict, fault_confirmed: bool = False) -> Dict
     proba = model.predict_proba(X)[0]
     label = FAULT_TYPE_LABELS.get(pred, str(pred))
 
-    # If fault is confirmed by the prediction model but classification says "No Fault",
-    # fall back to the highest-probability real fault type (excluding "No Fault").
     if fault_confirmed and label == "No Fault":
         no_fault_idx = next(
             (i for i, lbl in FAULT_TYPE_LABELS.items() if lbl == "No Fault"), None
@@ -178,11 +170,11 @@ def _run_fault_classification(data: Dict, fault_confirmed: bool = False) -> Dict
 
 
 def _run_localization(data: Dict) -> Dict:
-    sub_model    = model_registry.get("substation_localization")
-    dist_model   = model_registry.get("distance_localization")
-    sub_scaler   = model_registry.get("substation_scaler")
-    dist_scaler  = model_registry.get("distance_scaler")
-    le_sub       = model_registry.get("substation_le")
+    sub_model   = model_registry.get("substation_localization")
+    dist_model  = model_registry.get("distance_localization")
+    sub_scaler  = model_registry.get("substation_scaler")
+    dist_scaler = model_registry.get("distance_scaler")
+    le_sub      = model_registry.get("substation_le")
 
     X            = prepare_localization_features(data)
     X_sub_scaled = sub_scaler.transform(X.values)
@@ -191,8 +183,7 @@ def _run_localization(data: Dict) -> Dict:
     sub_pred  = int(sub_model.predict(X_sub_scaled)[0])
     sub_name  = le_sub.inverse_transform([sub_pred])[0]
     zone_name = sub_name.replace(" Substation", "")
-
-    dist_km = round(float(dist_model.predict(X_dst_scaled)[0]), 2)
+    dist_km   = round(float(dist_model.predict(X_dst_scaled)[0]), 2)
 
     return {
         "substation_id":   sub_pred,
@@ -229,14 +220,13 @@ def _location_factor(localization: Optional[Dict[str, Any]]) -> float:
         distance_km = float(distance_km)
     except Exception:
         distance_km = 0.0
-    distance_km    = float(np.clip(distance_km, 0.0, 90.0))
-    distance_factor = 0.92 + (distance_km / 320.0)   # 0.92 → 1.20
+    distance_km     = float(np.clip(distance_km, 0.0, 90.0))
+    distance_factor = 0.92 + (distance_km / 320.0)
 
     return float(np.clip(area_factor * distance_factor, 0.7, 1.4))
 
 
 def _safe_encode(encoder, value: str) -> int:
-    """Encode a categorical label; fall back to class index 0 if unseen."""
     classes = list(encoder.classes_)
     return int(encoder.transform([value if value in classes else classes[0]])[0])
 
@@ -246,29 +236,11 @@ def _run_etr(
     pipeline: Optional[Dict]     = None,
     latent_alert: Optional[Dict] = None,
     localization: Optional[Dict] = None,
-    area: str = "Saddar",
-    # FIX 1: hour and dayofweek now proper parameters (were hardcoded as 12 and 15)
-    hour: int      = 12,   # 0-23  — passed from pipeline payload
-    dayofweek: int = 2,    # 0-6   — passed from pipeline payload (was 15 → 6 std devs out!)
+    area: str  = "Saddar",
+    hour: int  = 12,
+    dayofweek: int = 2,
 ) -> Dict:
-    """
-    ETR prediction using ML model.
 
-    Fixes applied (no retraining required):
-      1. dayofweek was hardcoded as 15 (impossible — valid range 0-6).
-         The StandardScaler turned this into a z-score of +6.0, causing
-         extreme extrapolation. Now uses the actual value from the payload.
-      2. hour is now read from the payload instead of being hardcoded as 12.
-      3. Demand_Loss and Customers_Affected use training-data medians (44.4
-         and 25202) instead of the previous slightly-off hardcoded values.
-      4. Cause is inferred from fault_type_label via FAULT_TYPE_TO_CAUSE so
-         the model sees the correct cause distribution for each fault class.
-      5. A per-fault hard cap (FAULT_ETR_CAPS) prevents the heavy right tail
-         in training data from pushing predictions above realistic bounds.
-      6. Area factor computation now winsorizes at P90 before computing
-         medians, preventing storm-event outliers from inflating zone factors.
-    """
-    # Infer cause from fault type so model sees realistic cause distribution
     cause = FAULT_TYPE_TO_CAUSE.get(fault_type_label, "grid station fault")
 
     try:
@@ -276,56 +248,66 @@ def _run_etr(
         etr_enc    = model_registry.get("etr_encoders")
         etr_scaler = model_registry.get("etr_scaler")
 
-        # Categorical encodings — safe fallback to first class if label unseen
         area_enc    = _safe_encode(etr_enc["Area"],             area)
         cause_enc   = _safe_encode(etr_enc["Cause"],            cause)
         grid_enc    = _safe_encode(etr_enc["Grid_Station"],     "Gulshan Grid")
         climate_enc = _safe_encode(etr_enc["Climate_Region"],   "Urban Coastal")
         cat_enc     = _safe_encode(etr_enc["Climate_Category"], "warm")
 
-        # FIX 1+2+3: correct numerical features — all within training distribution
-        # Order: [Weather_Anomaly, Demand_Loss, Customers_Affected, hour, dayofweek,
-        #         feeder_count, crew_size]
         num_features = np.array([[
-            -0.1,                       # Weather_Anomaly  — training mean (was 0.0, close enough)
-            44.4,                       # Demand_Loss      — training median (was 68.0)
-            25202.0,                    # Customers_Affected — training median (was 38000)
-            float(int(hour) % 24),      # hour             — real value from payload (was hardcoded 12)
-            float(int(dayofweek) % 7),  # dayofweek        — real value from payload (was hardcoded 15!)
-            6.0,                        # feeder_count     — constant, unchanged
-            3.0,                        # crew_size        — constant, unchanged
+            -0.1,
+            44.4,
+            25202.0,
+            float(int(hour) % 24),
+            float(int(dayofweek) % 7),
+            6.0,
+            3.0,
         ]])
         num_scaled = etr_scaler.transform(num_features)
+        X_etr      = np.hstack([num_scaled, [[area_enc, cause_enc, grid_enc, climate_enc, cat_enc]]])
 
-        X_etr = np.hstack([num_scaled, [[area_enc, cause_enc, grid_enc, climate_enc, cat_enc]]])
-
-        # Model outputs log1p(minutes) — invert to get minutes then convert to hours
         log_pred_minutes = float(etr_model.predict(X_etr)[0])
         typical_minutes  = float(np.expm1(log_pred_minutes))
-        typical          = round(typical_minutes / 60.0, 2)
-        typical          = max(0.0, typical)
 
-        # Apply location factor (area + distance)
+        # ── DEBUG LOGS ──────────────────────────────────────────────────────────
+        print(f"[ETR DEBUG] fault_type_label      : {fault_type_label}")
+        print(f"[ETR DEBUG] log_pred_minutes      : {log_pred_minutes}")
+        print(f"[ETR DEBUG] typical_minutes (raw) : {typical_minutes}")
+        print(f"[ETR DEBUG] typical_hours (raw)   : {typical_minutes / 60.0}")
+        # ───────────────────────────────────────────────────────────────────────
+
+        # ✅ ROOT FIX: abs() applied HERE, before readable string is built
+        typical = abs(round(typical_minutes / 60.0, 2))
+        print(f"[ETR DEBUG] typical after abs()   : {typical}")
+
+        # Apply location factor
         if localization and typical > 0:
             try:
                 loc_factor = _location_factor(localization)
-                typical    = round(typical * loc_factor, 2)
-            except Exception:
-                pass
+                print(f"[ETR DEBUG] loc_factor            : {loc_factor}")
+                typical = abs(round(typical * loc_factor, 2))
+                print(f"[ETR DEBUG] typical after loc     : {typical}")
+            except Exception as loc_err:
+                print(f"[ETR DEBUG] loc_factor error      : {loc_err}")
 
-        # FIX 5: hard cap per fault type — prevents outlier-driven over-prediction
+        # Hard cap per fault type
         cap     = FAULT_ETR_CAPS.get(fault_type_label, 12.0)
-        typical = min(typical, cap)
+        typical = abs(min(typical, cap))
+        print(f"[ETR DEBUG] typical after cap     : {typical}  (cap={cap})")
 
         source = "ml_model"
 
-    except Exception:
-        # Fallback to rule-based lookup table if model unavailable
+    except Exception as model_err:
+        print(f"[ETR DEBUG] model failed, using lookup: {model_err}")
         info    = ETR_LOOKUP.get(fault_type_label, ETR_LOOKUP.get("LG"))
-        typical = info["typical_hours"]
+        typical = abs(float(info["typical_hours"]))
         source  = "lookup_table"
 
-    # Human-readable string
+    # ✅ FINAL SAFETY NET: guaranteed positive before string is built
+    typical = abs(max(0.0, typical))
+    print(f"[ETR DEBUG] typical FINAL             : {typical}")
+
+    # Build readable string — typical is 100% positive at this point
     if typical == 0:
         readable = "No recovery needed"
     elif typical < 1:
@@ -334,6 +316,8 @@ def _run_etr(
         readable = "~1 hour"
     else:
         readable = f"~{typical:.1f} hours"
+
+    print(f"[ETR DEBUG] estimated_recovery        : {readable}")
 
     info = ETR_LOOKUP.get(fault_type_label, ETR_LOOKUP.get("LG"))
     return {
@@ -358,8 +342,8 @@ def _run_latent_alert(data: Dict) -> Dict:
     model = model_registry.get("latent_alert")
     hour  = int(data.get("hour", 0))
     data["is_night"] = 1 if (hour >= 22 or hour < 6) else 0
-    X     = prepare_latent_alert_features(data)
-    proba = model.predict_proba(X)[0]
+    X            = prepare_latent_alert_features(data)
+    proba        = model.predict_proba(X)[0]
     anomaly_prob = float(proba[1])
     detected     = bool(anomaly_prob >= 0.5)
 
@@ -385,19 +369,8 @@ def _run_latent_alert(data: Dict) -> Dict:
 
 @router.post("/pipeline", summary="🚀 Run full chained prediction pipeline")
 def run_full_pipeline(payload: FullPipelineInput, raw_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """
-    **Main endpoint.** Runs the complete fault management pipeline:
-
-    1. **Fault Prediction**     — Always runs
-    2. **Latent Alert Detection** — Always runs (independent)
-    3. **Fault Classification** — Only if fault predicted
-    4. **Fault Localization**   — Only if fault predicted
-    5. **ETR Prediction**       — Only if fault classified
-
-    Returns a full structured result saved to the result store.
-    """
-    stages_run: List[str]    = []
-    result: Dict[str, Any]   = {}
+    stages_run: List[str]  = []
+    result: Dict[str, Any] = {}
 
     try:
         # Step 1: Fault Prediction
@@ -410,7 +383,6 @@ def run_full_pipeline(payload: FullPipelineInput, raw_data: Optional[Dict[str, A
         result["latent_alert"] = la_result
         stages_run.append("latent_alert")
 
-        # Steps 3-5: Only if fault is predicted
         if fp_result["fault_predicted"]:
 
             # Step 3: Classification
@@ -440,16 +412,14 @@ def run_full_pipeline(payload: FullPipelineInput, raw_data: Optional[Dict[str, A
                 result["localization"] = None
                 stages_run.append("localization_skipped_no_data")
 
-            # Step 5: ETR — pass real hour and dayofweek from fault_prediction payload
+            # Step 5: ETR
             etr_result = _run_etr(
                 cls_result["fault_type_label"],
                 pipeline     = fp_result,
                 latent_alert = la_result,
                 localization = result.get("localization"),
-                # Pull area from localization zone if available
                 area         = (result["localization"]["zone"]
                                 if result.get("localization") else "Saddar"),
-                # Real time features from the fault prediction payload — fixes the day=15 bug
                 hour         = int(payload.fault_prediction.hour),
                 dayofweek    = int(payload.fault_prediction.dayofweek),
             )
@@ -466,13 +436,12 @@ def run_full_pipeline(payload: FullPipelineInput, raw_data: Optional[Dict[str, A
         record_id = result_store.save(result)
         result["id"]        = record_id
         result["timestamp"] = result_store.get_by_id(record_id)["timestamp"]
-        
-        # Broadcast to all connected stream clients
+
         try:
             from app.core.stream_manager import stream_manager
             stream_manager.broadcast(result, raw_data=raw_data)
         except Exception as e:
-            print(f"Failed to broadcast: {e}")
+            print(f"[PIPELINE] Failed to broadcast: {e}")
 
         return result
 
@@ -487,7 +456,6 @@ def run_full_pipeline(payload: FullPipelineInput, raw_data: Optional[Dict[str, A
 
 @router.post("/fault", summary="Fault prediction only")
 def predict_fault(payload: FaultPredictionInput) -> Dict[str, Any]:
-    """Runs only the XGBoost fault prediction model."""
     try:
         return _run_fault_prediction(payload.model_dump())
     except Exception as e:
@@ -496,7 +464,6 @@ def predict_fault(payload: FaultPredictionInput) -> Dict[str, Any]:
 
 @router.post("/classify", summary="Fault type classification only")
 def classify_fault(payload: FaultClassificationInput) -> Dict[str, Any]:
-    """Runs only the fault type classification pipeline."""
     try:
         return _run_fault_classification(payload.model_dump())
     except Exception as e:
@@ -505,7 +472,6 @@ def classify_fault(payload: FaultClassificationInput) -> Dict[str, Any]:
 
 @router.post("/localize", summary="Fault localization only")
 def localize_fault(payload: LocalizationInput) -> Dict[str, Any]:
-    """Runs substation classification + distance regression."""
     try:
         return _run_localization(payload.model_dump())
     except Exception as e:
@@ -514,7 +480,6 @@ def localize_fault(payload: LocalizationInput) -> Dict[str, Any]:
 
 @router.post("/latent-alert", summary="Latent alert detection only")
 def detect_latent_alert(payload: LatentAlertInput) -> Dict[str, Any]:
-    """Runs LightGBM anomaly detection on feeder data."""
     try:
         return _run_latent_alert(payload.model_dump())
     except Exception as e:
@@ -534,7 +499,6 @@ def get_etr(
 ) -> Dict[str, Any]:
     """
     Returns Estimated Time to Recovery for a given fault type label.
-
     Valid labels: No Fault, LG, LL, LLG, LLL, LLLG
     """
     try:

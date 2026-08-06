@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { History, Search, ChevronDown, ChevronUp } from 'lucide-react';
 import { api, PipelineResult } from '@/lib/api';
 import { CheckCircle, AlertCircle, HelpCircle, ShieldAlert, Loader2 } from 'lucide-react';
+import { formatETRDisplay } from '@/lib/etrFormat';
 
 // ── Status Badge Component ───────────────────────────────────────────────────
 function StatusBadge({ 
@@ -250,7 +251,7 @@ function FilteredFaultStack({ faults }: { faults: PipelineResult[] }) {
                   </div>
                   <div>
                     <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-dim)', marginBottom: 8 }}>Recovery</div>
-                    <DetailRow label="Estimate" value={data.etr?.estimated_recovery ?? 'N/A'} />
+                    <DetailRow label="Estimate" value={formatETRDisplay(data.etr?.estimated_recovery, data.etr?.typical_hours)} />
                     <DetailRow label="Range" value={data.etr ? `${data.etr.min_hours}h - ${data.etr.max_hours}h` : 'N/A'} />
                     <DetailRow label="Model source" value={data.etr?.source ?? 'N/A'} />
                   </div>
@@ -662,7 +663,7 @@ export default function HistoryModule() {
 
                   {!isMobile && (
                     <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-secondary)' }}>
-                      {r.etr?.estimated_recovery ?? '—'}
+                      {formatETRDisplay(r.etr?.estimated_recovery, r.etr?.typical_hours)}
                     </span>
                   )}
 

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { PipelineResult } from '@/lib/api';
 import { useApp } from '@/lib/store';
+import { formatETRDisplay } from '@/lib/etrFormat';
 
 type FaultStackProps = {
   moduleId: string;
@@ -248,7 +249,7 @@ export default function FaultStack({ moduleId, title, accentColor = 'var(--alert
 
                       <div>
                         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-dim)', marginBottom: 8 }}>Recovery</div>
-                        <DetailRow label="Estimate" value={fault.etr?.estimated_recovery ?? 'N/A'} />
+                        <DetailRow label="Estimate" value={formatETRDisplay(fault.etr?.estimated_recovery, fault.etr?.typical_hours)} />
                         <DetailRow label="Range" value={fault.etr ? `${fault.etr.min_hours}h - ${fault.etr.max_hours}h` : 'N/A'} />
                         <DetailRow label="Model source" value={fault.etr?.source ?? 'N/A'} />
                       </div>

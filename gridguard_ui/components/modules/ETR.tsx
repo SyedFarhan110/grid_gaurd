@@ -2,6 +2,7 @@
 import { useApp } from '@/lib/store';
 import { useState, useEffect } from 'react';
 import { Clock, CheckCircle, Circle, AlertTriangle, Wrench, Radio, Users } from 'lucide-react';
+import { formatETRDisplay } from '@/lib/etrFormat';
 
 // ── Breakpoint hook ──────────────────────────────────────────────────────────
 function useBreakpoint() {
@@ -43,7 +44,6 @@ function ETRTimeline({
 }) {
   return (
     <div style={{ position: 'relative', paddingLeft: 32 }}>
-      {/* Vertical connector line */}
       <div style={{
         position: 'absolute', left: 11, top: 8, bottom: 8,
         width: 2, background: 'var(--border-dim)',
@@ -56,7 +56,6 @@ function ETRTimeline({
 
         return (
           <div key={stage.id} style={{ position: 'relative', marginBottom: 20 }}>
-            {/* Circle on line */}
             <div style={{
               position: 'absolute', left: -32, top: 2,
               width: 22, height: 22, borderRadius: '50%',
@@ -98,7 +97,7 @@ function ETRTimeline({
 
 // ── Main Component ───────────────────────────────────────────────────────────
 export default function ETR() {
-  const { state }        = useApp();
+  const { state }              = useApp();
   const { isMobile, isTablet } = useBreakpoint();
 
   const result = state.stickyFaultResult ?? state.latestResult;
@@ -122,8 +121,13 @@ export default function ETR() {
     );
   }
 
-  const areaLabel = result?.localization?.zone ?? result?.localization?.substation_name ?? 'Area not available';
+  const areaLabel      = result?.localization?.zone ?? result?.localization?.substation_name ?? 'Area not available';
   const faultTypeLabel = result?.classification?.fault_type_label ?? 'Fault type not available';
+
+  console.log('ETR raw value:', etr.estimated_recovery, 'typical_hours:', etr.typical_hours);
+
+  // ✅ Always sanitized — uses typical_hours (number) as primary source
+  const displayETR = formatETRDisplay(etr.estimated_recovery, etr.typical_hours);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -164,7 +168,8 @@ export default function ETR() {
           fontSize: isMobile ? 24 : 32,
           fontWeight: 800, color: 'var(--warn-500)',
         }}>
-          {etr.estimated_recovery}
+          {/* ✅ Uses formatETR which always strips the negative sign */}
+          {displayETR}
         </div>
       </div>
 
@@ -193,7 +198,6 @@ export default function ETR() {
           }}>
             {faultTypeLabel}
           </div>
-
         </div>
 
         <div style={{
@@ -219,7 +223,6 @@ export default function ETR() {
       </div>
 
       {/* ── Recovery stages + response actions ── */}
-      {/* Stack to single column on mobile/tablet */}
       <div style={{
         display: 'grid',
         gridTemplateColumns: isTablet ? '1fr' : '1fr 1fr',
@@ -238,7 +241,7 @@ export default function ETR() {
             RECOVERY STAGES
           </div>
           <ETRTimeline
-            typicalHours={etr.typical_hours}
+            typicalHours={Math.abs(etr.typical_hours)}
             minHours={etr.min_hours}
             maxHours={etr.max_hours}
           />
@@ -304,7 +307,7 @@ export default function ETR() {
                 <span style={{
                   fontFamily: 'var(--font-mono)', fontSize: 10,
                   color: 'var(--text-secondary)',
-                  wordBreak: 'break-word',       /* ← prevents overflow on narrow screens */
+                  wordBreak: 'break-word',
                 }}>
                   {item.action}
                 </span>
